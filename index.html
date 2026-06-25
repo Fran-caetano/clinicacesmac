@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%230066ff%22/><text x=%2232%22 y=%2243%22 text-anchor=%22middle%22 font-size=%2228%22 font-family=%22sans-serif%22 font-weight=%22bold%22 fill=%22white%22>P</text></svg>">
+<meta property="og:title" content="PsiCESMAC — Clínica Escola de Psicologia">
+<meta property="og:description" content="Sistema de Gestão Clínica Integrada — CESMAC do Agreste, Arapiraca/AL">
+<meta property="og:type" content="website">
+<meta name="description" content="Gestão Clínica — Clínica Escola de Psicologia CESMAC do Agreste">
+<meta name="theme-color" content="#0066ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PsiCESMAC">
+<link rel="manifest" href="#pwa">
+<title>PsiCESMAC · Clínica Escola de Psicologia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a href="#main" style="position:absolute;left:-9999px;top:auto;z-index:9999;background:var(--b6);color:#fff;padding:8px 16px;border-radius:var(--r8);font-size:.85rem;text-decoration:none" onfocus="this.style.left='16px';this.style.top='16px'" onblur="this.style.left='-9999px'">Pular para o conteúdo</a>
+<!-- LOGIN -->
+<div id="login">
+  <div class="lvis">
+    <div class="lvis-bg"></div>
+    <div style="position:absolute;inset:0;pointer-events:none"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+    <div class="lvis-grid"></div>
+    <div class="lvis-body">
+      <img src="logo-cesmac.jpg" alt="CESMAC" style="height:70px;width:auto;margin:0 auto 24px;display:block;opacity:.95">
+      <div class="lvis-tag">Cuidando de quem<br>cuida das pessoas</div>
+      <p class="lvis-sub">Sistema de Gestão Clínica · Clínica Escola de Psicologia<br>CESMAC do Agreste · Arapiraca, AL</p>
+      <div class="lvis-stats">
+        <div><div class="lst-n" id="lv-p">—</div><div class="lst-l">Pacientes</div></div>
+        <div><div class="lst-n" id="lv-s">—</div><div class="lst-l">Sessões</div></div>
+        <div><div class="lst-n" id="lv-u">—</div><div class="lst-l">Profissionais</div></div>
+      </div>
+      <div class="lvis-badge"><div class="lpulse"></div>Sistema ativo · LGPD · Dados criptografados</div>
+    </div>
+  </div>
+  <div class="lpan">
+    <div class="lpan-brand">
+      <div class="lpan-seal">
+        <img src="logo-cesmac.jpg" alt="CESMAC">
+      </div>
+      <div class="lpan-inst">CESMAC do Agreste</div>
+      <h1 class="lpan-title">Clínica Escola<br><span>de Psicologia</span></h1>
+      <p class="lpan-sub">Sistema de Gestão Clínica Integrada</p>
+      <div class="lpan-bar"></div>
+    </div>
+    <div class="tab-row" id="login-tabs">
+      <button class="tabb on" onclick="Auth.tab('login',this)">Entrar</button>
+      <button class="tabb" onclick="Auth.tab('register',this)">Cadastrar</button>
+      <button class="tabb" onclick="Auth.tab('recover',this)">Recuperar</button>
+    </div>
+    <div id="pn-login">
+      <div class="fg" id="fg-li-e"><label class="fl">E-mail</label>
+        <input type="email" id="li-e" class="fi" placeholder="seu@email.com" autocomplete="email" maxlength="120" onkeydown="if(event.key==='Enter')Auth.login()">
+        <div class="ferr">Informe um e-mail válido.</div></div>
+      <div class="fg" id="fg-li-p"><label class="fl">Senha</label>
+        <input type="password" id="li-p" class="fi" placeholder="••••••••" autocomplete="current-password" maxlength="72" onkeydown="if(event.key==='Enter')Auth.login()">
+        <div class="ferr">Informe a senha.</div></div>
+      <button class="btn btn-p btn-w btn-lg" id="btn-login" onclick="Auth.login()"><span id="btn-login-txt">Acessar sistema</span></button>
+
+    </div>
+    <div id="pn-register" style="display:none">
+      <div class="g2">
+        <div class="fg gc" id="fg-rg-n"><label class="fl">Nome completo *</label>
+          <input type="text" id="rg-n" class="fi" placeholder="Nome Sobrenome" maxlength="80">
+          <div class="ferr">Campo obrigatório.</div></div>
+        <div class="fg" id="fg-rg-e"><label class="fl">E-mail *</label>
+          <input type="email" id="rg-e" class="fi" placeholder="seu@email.com" maxlength="120">
+          <div class="ferr">E-mail inválido.</div></div>
+        <div class="fg" id="fg-rg-p"><label class="fl">Senha * (mín. 8 car.)</label>
+          <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72">
+          <div class="ferr">Mínimo 8 caracteres.</div></div>
+        <div class="fg gc"><label class="fl">Função solicitada</label>
+          <select id="rg-r" class="fi fsel">
+            <option value="recepcao">Recepção</option>
+            <option value="estagiario">Estagiário(a)</option>
+            <option value="professor">Professor(a) / Supervisor(a)</option>
+          </select></div>
+      </div>
+      <button class="btn btn-p btn-w" onclick="Auth.register()">Solicitar cadastro</button>
+      <p style="font-size:.71rem;color:var(--ink4);text-align:center;margin-top:10px;line-height:1.6">O acesso será aprovado pelo Administrador do sistema.</p>
+    </div>
+    <div id="pn-recover" style="display:none">
+      <div class="rec-step on" id="rec-s1">
+        <div class="rec-ico">🔐</div>
+        <p class="rec-msg">Informe seu e-mail para receber o token de recuperação de senha.</p>
+        <div class="fg" id="fg-rec-e"><label class="fl">E-mail cadastrado</label>
+          <input type="email" id="rec-e" class="fi" placeholder="seu@email.com" maxlength="120">
+          <div class="ferr">E-mail não encontrado no sistema.</div></div>
+        <button class="btn btn-p btn-w" onclick="Auth.recoverStep1()">Enviar token</button>
+      </div>
+      <div class="rec-step" id="rec-s2">
+        <div class="rec-ico">📧</div>
+        <p class="rec-msg">Token enviado para seu e-mail. Expira em <strong>15 minutos</strong>.</p>
+        <div class="fg"><label class="fl">Token de verificação</label>
+          <input type="text" id="rec-tok" class="fi" placeholder="Ex: A3F9K2" maxlength="8" style="text-align:center;letter-spacing:.3em;font-size:1.05rem;font-weight:700"></div>
+        <button class="btn btn-p btn-w" onclick="Auth.recoverStep2()">Verificar token</button>
+      </div>
+      <div class="rec-step" id="rec-s3">
+        <div class="rec-ico">✅</div>
+        <p class="rec-msg">Token validado. Defina sua nova senha.</p>
+        <div class="fg"><label class="fl">Nova senha *</label>
+          <input type="password" id="rec-np" class="fi" placeholder="Mín. 8 caracteres" maxlength="72"></div>
+        <div class="fg"><label class="fl">Confirme a nova senha *</label>
+          <input type="password" id="rec-np2" class="fi" placeholder="Repita a senha" maxlength="72"></div>
+        <button class="btn btn-p btn-w" onclick="Auth.recoverStep3()">Redefinir senha</button>
+      </div>
+    </div>
+    <p class="lpan-hint">Acesso restrito · Criptografia AES-256 · LGPD / CFP</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" aria-hidden="true">
+  <div id="sbo" onclick="UI.closeSb()"></div>
+  <nav id="sb">
+    <div class="sbh">
+      <div class="sbb"><img src="logo-cesmac.jpg" alt="CESMAC" style="height:24px;width:auto;opacity:.95;flex-shrink:0"><div class="sbt" style="margin-left:6px"><strong>PsiCESMAC</strong><span>Clínica Escola · CESMAC</span></div></div>
+    </div>
+    <div class="sbn" id="sb-nav"></div>
+    <div class="sbu">
+      <div class="sbav" id="sbav">?</div>
+      <div style="flex:1;min-width:0"><div class="sbun" id="sbun">—</div><div class="sbur" id="sbur">—</div></div>
+      <button class="sblout" aria-label="Sair" onclick="Auth.logout()" title="Sair">
+        <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg></button>
+    </div>
+  </nav>
+  <div id="main" role="main">
+    <div class="offline-bar" id="offline-bar"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><span>Sem conexao — dados salvos localmente</span></div>
+    <header class="topbar">
+      <button class="tbmenu" aria-label="Menu" id="tbmenu" onclick="UI.toggleSb()" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>
+      <span class="tbtitle" id="tbtitle">Dashboard</span>
+      <div class="tbsr">
+        <svg class="tbsico" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input class="tbsin" id="gsearch" type="search" placeholder="Buscar paciente… (Ctrl+K)" autocomplete="off" oninput="Search.go(this.value)">
+      </div>
+      <span class="tbdate"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg><span id="tbdate-txt"></span></span>
+      <div class="tbacts">
+        <span class="bdg rchip" id="rchip"></span>
+        <button class="tbiBtn" id="thbtn" onclick="UI.theme()" title="Tema" aria-label="Alternar tema"><svg id="thico" viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg></button>
+        <div style="position:relative">
+          <button class="tbiBtn" id="notiBtn" onclick="UI.toggleNotif()" aria-label="Notificações">
+            <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+            <span class="ndot" id="ndot" style="display:none"></span>
+          </button>
+          <div class="npanel" id="npanel">
+            <div class="nph"><h4>Notificações</h4><button class="btn btn-g btn-xs" onclick="Notif.readAll()">Ler todas</button></div>
+            <div id="nlist"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main class="pc">
+      <section class="page on" id="page-dashboard">
+        <div class="pgh"><div class="pgh-l"><h2>Visão Geral</h2><p>Indicadores clínicos do período atual</p></div></div>
+        <div id="dash-prof-warn" style="display:none;margin-bottom:14px"></div>
+        <div class="strow">
+          <div class="stc" style="--ac:var(--b6)"><div class="stico" style="background:var(--b1);color:var(--b7)"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><div class="stval" id="s-t">0</div><div class="stlbl">Total de pacientes</div><div class="stsub" id="s-sub" style="color:var(--b6)">—</div></div>
+          <div class="stc" style="--ac:var(--g5)"><div class="stico" style="background:var(--g1);color:var(--g6)"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div><div class="stval" id="s-a">0</div><div class="stlbl">Em acompanhamento</div></div>
+          <div class="stc" style="--ac:var(--o5)"><div class="stico" style="background:var(--o1);color:var(--o6)"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg></div><div class="stval" id="s-hj">0</div><div class="stlbl">Atendimentos hoje</div></div>
+          <div class="stc" style="--ac:var(--r5)"><div class="stico" style="background:var(--r1);color:var(--r6)"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div><div class="stval" id="s-s">0</div><div class="stlbl">Sessões registradas</div></div>
+        </div>
+        <div class="chrow">
+          <div class="chcard"><div class="cht">Atendimentos por mês</div><div class="chs">Últimos 6 meses</div><div class="chw"><canvas id="ch-monthly"></canvas></div></div>
+          <div class="chcard"><div class="cht">Status dos casos</div><div class="chs">Distribuição atual</div><div class="chw"><canvas id="ch-status"></canvas></div></div>
+        </div>
+        <div class="card" id="dash-lembretes" style="margin-bottom:13px;display:none">
+          <div class="cardh"><h3>Lembretes de amanhã</h3><button class="btn btn-wa btn-sm" onclick="Lembrete.enviarTodos()"><svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.824 11.824 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24z"/></svg>Enviar todos via WhatsApp</button></div>
+          <div class="cardb" id="dash-lembretes-list" style="padding:8px 14px"></div>
+        </div>
+        <div class="dbot">
+          <div class="card"><div class="cardh"><h3>Próximos atendimentos</h3><button class="btn btn-g btn-xs" onclick="UI.nav('agenda')">Ver agenda →</button></div><div id="dash-up"></div></div>
+          <div class="card"><div class="cardh"><h3>Pacientes recentes</h3><button class="btn btn-g btn-xs" onclick="UI.nav('pacientes')">Ver todos →</button></div><div id="dash-pats"></div></div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="cardh"><h3>Backup de dados</h3></div>
+          <div class="cardb" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-p" onclick="Backup.exportAll()"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Exportar tudo (JSON)</button>
+            <button class="btn btn-s" onclick="document.getElementById('backup-file').click()"><svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>Importar backup</button>
+            <input type="file" id="backup-file" accept=".json" style="display:none" onchange="Backup.importAll(this)">
+            <span style="font-size:.69rem;color:var(--ink4)">Exporta todas as chaves do sistema</span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px">
+          <div class="cardh"><h3>Nuvem · Supabase</h3><span class="bdg" id="cloud-status-bdg">desconectado</span></div>
+          <div class="cardb">
+            <p style="font-size:.74rem;color:var(--ink5);margin-bottom:12px;line-height:1.6">A URL do projeto já está configurada. Falta apenas a <strong>Anon Key</strong>: no painel do Supabase, vá em <em>Settings → API</em>, copie a chave "anon public" e cole no campo abaixo. Depois clique Conectar.</p>
+            <div class="g2">
+              <div class="fg"><label class="fl">Project URL</label><input type="text" id="sb-url" class="fi" placeholder="https://xxxxx.supabase.co" value="https://daokctlqggubgrikrubj.supabase.co"></div>
+              <div class="fg"><label class="fl">Anon Key</label><input type="text" id="sb-key" class="fi" placeholder="eyJhbGciOiJIUz..." value=""></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn btn-p" onclick="Cloud.connect()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>Conectar</button>
+              <button class="btn btn-s" onclick="Cloud.push()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M5 10l7-7 7 7h-4v7H9v-7z"/></svg>Enviar dados</button>
+              <button class="btn btn-s" onclick="Cloud.pull()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19 14l-7 7-7-7h4V7h6v7z"/></svg>Receber dados</button>
+              <button class="btn btn-s" onclick="Cloud.downloadSchema()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9v4h-2v-4H8l4-4 4 4h-3z"/></svg>Baixar schema SQL</button>
+              <button class="btn btn-d" onclick="Cloud.disconnect()">Desconectar</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px"><div class="cardh"><h3>Armazenamento local</h3></div><div class="cardb"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px"><div style="flex:1;height:8px;background:var(--bdr);border-radius:4px;overflow:hidden"><div id="storage-fill" style="height:100%;border-radius:4px;width:0%;transition:width .4s"></div></div><span id="storage-label" style="font-size:.74rem;font-weight:600;color:var(--ink5)">—</span></div><div id="storage-detail" style="font-size:.69rem;color:var(--ink4)"></div></div></div>
+        <div class="card" style="margin-top:12px"><div class="cardh"><h3>Integridade dos dados</h3><button class="btn btn-s btn-sm" onclick="HealthCheck.run()">Verificar</button><button class="btn btn-d btn-sm" onclick="HealthCheck.repair()">Auto-reparar</button></div><div class="cardb" id="health-result" style="padding:8px 14px"><span style="font-size:.77rem;color:var(--ink4)">Clique em Verificar para escanear a base.</span></div></div>
+      </section>
+      <section class="page" id="page-agenda">
+        <div class="pgh"><div class="pgh-l"><h2>Agenda</h2><p id="ag-sub">Gerenciamento de atendimentos e horários</p></div>
+          <div class="pgh-r"><button class="btn btn-p" id="btn-novo-agend" onclick="Appts.openNew()"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>Novo agendamento</button></div>
+        </div>
+        <div class="card" style="margin-bottom:12px"><div class="cardb">
+          <div class="calnav"><button class="btn btn-s btn-sm" onclick="Cal.go(-1)">‹ Anterior</button><span class="calmonth" id="cal-lbl"></span><button class="btn btn-s btn-sm" onclick="Cal.go(1)">Próximo ›</button></div>
+          <div class="calgrid" id="cal-hdrs"></div>
+          <div class="calgrid" id="cal-grid"></div>
+        </div></div>
+        <div class="card"><div class="cardh"><h3>Atendimentos</h3>
+          <select class="fi fsel" id="appt-fil" style="max-width:148px;padding:5px 9px;font-size:.76rem" onchange="Agenda.renderList()">
+            <option value="">Todos</option><option value="agendado">Agendados</option><option value="realizado">Realizados</option><option value="cancelado">Cancelados</option>
+          </select></div>
+          <div class="cardb" id="appt-list" style="padding:8px 14px"></div>
+        </div>
+      </section>
+      <section class="page" id="page-pacientes">
+        <div class="pgh"><div class="pgh-l"><h2>Pacientes</h2><p id="pac-sub">Gerenciamento de pacientes cadastrados</p></div>
+          <div class="pgh-r">
+            <div style="display:flex;background:var(--surf3);border-radius:var(--r8);padding:3px;gap:2px">
+              <button class="tabb on" onclick="Pats.type('adulto',this)" style="min-width:84px">Adultos</button>
+              <button class="tabb" onclick="Pats.type('infantil',this)" style="min-width:84px">Infantis</button>
+            </div>
+            <button class="btn btn-s" onclick="Pats.exportCSV()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>CSV</button><button class="btn btn-p" id="btn-novo-pac" onclick="Pats.openNew()"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>Novo paciente</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="cardh"><h3 id="pats-ttl">Pacientes Adultos</h3>
+            <input class="fi" id="pats-search" type="search" style="max-width:215px;padding:6px 10px;font-size:.77rem" placeholder="🔍 Filtrar por nome…" oninput="Pats.filter(this.value)"></div>
+          <div class="tw"><table><thead><tr><th>Paciente</th><th>Nasc.</th><th>Tipo</th><th>Contato</th><th>Prioridade</th><th>Status</th><th>Ações</th></tr></thead><tbody id="pats-body"></tbody></table></div><div id="pats-pag"></div>
+        </div>
+      </section>
+      <section class="page" id="page-prontuarios">
+        <div class="pgh"><div class="pgh-l"><h2>Prontuários</h2><p>Histórico clínico e evolução terapêutica</p></div>
+          <div class="pgh-r"><button class="btn btn-s" onclick="Plano.open()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.89 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 11h-4v4h-4v-4H6v-4h4V6h4v4h4v4z"/></svg>Plano terapêutico</button><button class="btn btn-s" onclick="Sess.exportCSV()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>CSV</button><button class="btn btn-s" onclick="PDF.evolucao()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>PDF Evolução</button><button class="btn btn-p" id="btn-reg-evolucao" onclick="Sess.openNew()"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>Registrar evolução</button></div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="cardh"><h3>Selecionar paciente</h3></div>
+          <div class="cardb" style="padding-top:11px"><select id="pron-sel" class="fi fsel" style="max-width:360px" onchange="Rec.load(this.value)"><option value="">— Escolha um paciente —</option></select></div>
+        </div>
+        <div id="pron-view" style="display:none">
+          <div class="pb" id="pron-banner"></div>
+          <div class="chrow" style="align-items:start">
+            <div><div class="sdiv">Linha do Tempo Clínica</div><div class="tl" id="pron-tl"></div></div>
+            <div>
+              <div class="chcard" style="margin-bottom:12px"><div class="cht">Evolução emocional</div><div class="chs">Humor por sessão</div><div class="chw"><canvas id="ch-mood"></canvas></div></div>
+              <div class="card"><div class="cardh"><h3>Anamneses e documentos</h3></div><div id="pron-docs" style="padding:8px 13px;min-height:44px"></div></div>
+            </div>
+          </div>
+        </div>
+        <div id="pron-empty" class="es"><div class="esico"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg></div><h3>Selecione um paciente</h3><p>Escolha acima para visualizar o prontuário completo.</p></div>
+      </section>
+      <section class="page" id="page-anamnese">
+        <div class="pgh"><div class="pgh-l"><h2>Anamneses</h2><p>Formulários clínicos de avaliação e acompanhamento</p></div></div>
+        <div class="tmpls" id="tmpls"></div>
+      </section>
+      <section class="page" id="page-financeiro">
+        <div class="pgh"><div class="pgh-l"><h2>Financeiro</h2><p>Controle de despesas, compras e relatórios</p></div>
+          <div class="pgh-r">
+            <button class="btn btn-s" onclick="Fin.exportCSV()"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Exportar CSV</button>
+            <button class="btn btn-p" onclick="Fin.openNew()"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>Novo lançamento</button>
+          </div>
+        </div>
+        <div class="finrow">
+          <div class="stc" style="--ac:var(--g5)"><div class="stico" style="background:var(--g1);color:var(--g6)"><svg viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg></div><div class="stval" id="f-rec">R$ 0,00</div><div class="stlbl">Receitas do mês</div></div>
+          <div class="stc" style="--ac:var(--r5)"><div class="stico" style="background:var(--r1);color:var(--r6)"><svg viewBox="0 0 24 24"><path d="M20 6h-2.18c.07-.44.18-.88.18-1.5V3c0-1.1-.9-2-2-2s-2 .9-2 2v1.5c0 .62.11 1.06.18 1.5H9.82c.07-.44.18-.88.18-1.5V3c0-1.1-.9-2-2-2S6 1.9 6 3v1.5c0 .62.11 1.06.18 1.5H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg></div><div class="stval" id="f-des">R$ 0,00</div><div class="stlbl">Despesas do mês</div></div>
+          <div class="stc" style="--ac:var(--b6)"><div class="stico" style="background:var(--b1);color:var(--b7)"><svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg></div><div class="stval" id="f-sal">R$ 0,00</div><div class="stlbl">Saldo do período</div></div>
+        </div>
+        <div class="card"><div class="cardh"><h3>Lançamentos</h3></div>
+          <div class="tw"><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th>Ações</th></tr></thead><tbody id="fin-body"></tbody></table></div>
+        </div>
+      </section>
+      <section class="page" id="page-auditoria">
+        <div class="pgh"><div class="pgh-l"><h2>Auditoria</h2><p>Log imutável de acessos — LGPD / CFP</p></div>
+          <div class="pgh-r"><button class="btn btn-s" onclick="AuditLog.export()"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Exportar</button></div>
+        </div>
+        <div class="card"><div class="cardh"><h3>Registro de ações</h3>
+          <select class="fi fsel" id="audit-fil" style="max-width:158px;padding:5px 9px;font-size:.76rem" onchange="AuditLog.render()">
+            <option value="">Todos</option><option value="login">Logins</option><option value="prontuario">Prontuários</option><option value="paciente">Pacientes</option><option value="export">Exportações</option><option value="seguranca">Segurança</option>
+          </select></div>
+          <div class="cardb" id="audit-list" style="padding:5px 11px"></div>
+        </div>
+      </section>
+      <section class="page" id="page-admin">
+        <div class="pgh"><div class="pgh-l"><h2>Administração</h2><p>Usuários, aprovações e configurações globais</p></div></div>
+        <div class="card" id="pending-card" style="margin-bottom:12px">
+          <div class="cardh"><h3 id="pending-h">Cadastros pendentes de aprovação</h3></div>
+          <div class="tw"><table><thead><tr><th>Solicitante</th><th>E-mail</th><th>Função</th><th>Data</th><th>Ações</th></tr></thead><tbody id="pending-body"></tbody></table></div>
+        </div>
+        <div class="card"><div class="cardh"><h3>Usuários ativos do sistema</h3></div>
+          <div class="tw"><table><thead><tr><th>Usuário</th><th>E-mail</th><th>Função</th><th>Cadastro</th><th>Ações</th></tr></thead><tbody id="admin-body"></tbody></table></div>
+        </div>
+      </section>
+      <section class="page" id="page-supervisao">
+        <div class="card" style="margin-bottom:13px"><div class="cardh"><h3>Agendas por profissional</h3></div><div class="cardb" id="sup-calendario"></div></div>
+        <div class="pgh"><div class="pgh-l"><h2>Supervisão</h2><p>Painel do Professor — vínculos e estagiários</p></div>
+          <div class="pgh-r"><button class="btn btn-p" onclick="M.open('m-vinculo')"><svg viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>Novo vínculo</button></div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="cardh"><h3>Estagiários sob minha supervisão</h3></div>
+          <div id="sup-alunos" style="padding:12px"></div>
+        </div>
+        <div class="card"><div class="cardh"><h3>Vínculos estagiário ↔ paciente</h3></div>
+          <div class="tw"><table><thead><tr><th>Estagiário</th><th>Paciente</th><th>Vinculado em</th><th>Status</th><th>Ações</th></tr></thead><tbody id="vinc-body"></tbody></table></div>
+        </div>
+      </section>
+      <section class="page" id="page-perfil">
+        <div class="pgh"><div class="pgh-l"><h2>Perfil Profissional</h2><p>Dados obrigatórios — normas CFP</p></div></div>
+        <div class="card"><div class="cardb" id="perfil-form"></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="mbg" id="m-pat" role="dialog" aria-modal="true">
+  <div class="modal mw">
+    <div class="mh"><h3 class="mtitle" id="m-pat-title">Cadastrar Paciente</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-pat')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="g2">
+      <div class="fg gc" id="fg-mp-n"><label class="fl">Nome completo *</label><input type="text" id="mp-n" class="fi" placeholder="Nome do paciente" maxlength="100"><div class="ferr">Obrigatório.</div></div>
+      <div class="fg" id="fg-mp-nasc"><label class="fl">Data de nascimento *</label><input type="date" id="mp-nasc" class="fi" min="1920-01-01" max=""><div class="ferr">Obrigatório.</div></div>
+      <div class="fg"><label class="fl">Sexo</label><select id="mp-sexo" class="fi fsel"><option>Feminino</option><option>Masculino</option><option>Não-binário</option><option>Prefiro não informar</option></select></div>
+      <div class="fg"><label class="fl">WhatsApp</label><input type="tel" id="mp-tel" class="fi" placeholder="(82) 99999-9999" maxlength="16" oninput="Mask.tel(this)"></div>
+      <div class="fg"><label class="fl">E-mail</label><input type="email" id="mp-email" class="fi" placeholder="email@exemplo.com" maxlength="120" onblur="Mask.email(this)"></div>
+      <div class="fg"><label class="fl">CPF</label><input type="text" id="mp-cpf" class="fi" placeholder="000.000.000-00" maxlength="14" oninput="Mask.cpf(this)" onblur="Mask.validaCPF(this)"></div>
+      <div class="fg"><label class="fl">Tipo *</label><select id="mp-tipo" class="fi fsel"><option value="adulto">Adulto</option><option value="infantil">Infantil/Adolescente</option></select></div>
+      <div class="fg"><label class="fl">Modalidade</label><select id="mp-mod" class="fi fsel"><option>Individual</option><option>Casal</option><option>Grupo</option><option>Infantil</option></select></div>
+      <div class="fg"><label class="fl">Prioridade</label><select id="mp-prio" class="fi fsel"><option value="baixa">Baixa</option><option value="media" selected>Média</option><option value="alta">Alta</option></select></div>
+      <div class="fg"><label class="fl">Encaminhado por</label><input type="text" id="mp-enc" class="fi" placeholder="UBS, CAPS, Espontâneo…" maxlength="80"></div>
+      <div class="fg gc"><label class="fl">Queixa principal</label><textarea id="mp-queixa" class="fi" placeholder="Queixa relatada…" maxlength="1000"></textarea></div>
+      <div class="fg"><label class="fl">Responsável legal (se menor)</label><input type="text" id="mp-resp" class="fi" placeholder="Nome do responsável" maxlength="80"></div>
+      <div class="fg"><label class="fl">Tel. do responsável</label><input type="tel" id="mp-tel-resp" class="fi" placeholder="(82) 99999-9999" maxlength="16" oninput="Mask.tel(this)"></div>
+      <div class="fg gc"><label class="fl">Observações iniciais</label><textarea id="mp-obs" class="fi" placeholder="Notas sobre o primeiro contato…" maxlength="500"></textarea></div>
+      <div class="fg gc"><label class="fl">Foto do paciente</label><div style="display:flex;align-items:center;gap:12px"><div id="mp-foto-prev" style="width:48px;height:48px;border-radius:50%;background:var(--surf3);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0"><span style="font-size:.65rem;color:var(--ink3)">Sem foto</span></div><input type="file" id="mp-foto" accept="image/*" onchange="Pats._previewFoto(this)" style="font-size:.78rem;color:var(--ink5)"><button type="button" class="btn btn-xs btn-d" onclick="Pats._clearFoto()" style="flex-shrink:0">Limpar</button></div></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="fl" style="margin-bottom:8px">Documentos do paciente (PDF, PNG, JPG — máx. 10MB)</div>
+      <div class="drop-zone" id="dz-pat" onclick="DZ.click('dz-pat','fi-pat')" ondragover="DZ.over(event,'dz-pat')" ondragleave="DZ.leave('dz-pat')" ondrop="DZ.drop(event,'dz-pat','fi-pat')">
+        <div class="drop-zone-txt">📄 Arraste ou clique para enviar RG/CPF, comprovante de residência ou TCLE assinado</div>
+        <div class="drop-zone-files" id="dz-pat-files"></div>
+        <input type="file" id="fi-pat" multiple accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="DZ.fileChange('dz-pat','fi-pat')">
+      </div>
+    </div>
+      <div class="fg gc" style="margin-top:6px;padding:12px;background:var(--b0);border:1px solid var(--b2);border-radius:var(--r12)">
+        <label class="fl" style="color:var(--b7);margin-bottom:8px">Consentimentos LGPD</label>
+        <div class="chk-grp">
+          <label class="chk-lbl"><input type="checkbox" id="mp-lgpd-atend" checked>Atendimento clínico</label>
+          <label class="chk-lbl"><input type="checkbox" id="mp-lgpd-dados" checked>Tratamento de dados (LGPD)</label>
+          <label class="chk-lbl"><input type="checkbox" id="mp-lgpd-grav">Gravação de sessão</label>
+          <label class="chk-lbl"><input type="checkbox" id="mp-lgpd-pesq">Uso em pesquisa acadêmica</label>
+        </div>
+      </div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-pat')">Cancelar</button><button class="btn btn-p" onclick="Pats.save()">Salvar paciente</button></div>
+  </div>
+</div>
+
+<div class="mbg" id="m-sess" role="dialog" aria-modal="true">
+  <div class="modal mw">
+    <div class="mh"><h3 class="mtitle" id="m-sess-title">Registrar Evolução Clínica</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-sess')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="g2">
+      <div class="fg gc" id="fg-ms-p"><label class="fl">Paciente *</label><select id="ms-p" class="fi fsel"><option value="">— Selecione —</option></select><div class="ferr">Selecione um paciente.</div></div>
+      <div class="fg" id="fg-ms-d"><label class="fl">Data *</label><input type="date" id="ms-d" class="fi" min="2020-01-01" max=""><div class="ferr">Obrigatório.</div></div>
+      <div class="fg"><label class="fl">Nº da sessão</label><input type="number" id="ms-num" class="fi" placeholder="Ex: 5" min="1" max="999"></div>
+      <div class="fg"><label class="fl">Tipo de intervenção</label><select id="ms-tipo" class="fi fsel"><option>Acolhimento</option><option>Psicoterapia</option><option>Avaliação</option><option>Devolutiva</option><option>Crise</option><option>Supervisão</option></select></div>
+      <div class="fg"><label class="fl">Hora início</label><input type="time" id="ms-hi" class="fi"></div>
+      <div class="fg"><label class="fl">Hora fim</label><input type="time" id="ms-hf" class="fi"></div>
+      <div class="fg gc"><label class="fl">Humor do paciente: <strong id="ms-hv" style="color:var(--b6)">3/5</strong></label><input type="range" id="ms-h" min="1" max="5" value="3" oninput="document.getElementById('ms-hv').textContent=this.value+'/5'"></div>
+      <div class="fg gc" id="fg-ms-r"><label class="fl">Evolução clínica *</label><textarea id="ms-r" class="fi" style="min-height:100px" placeholder="Registro detalhado da sessão — técnicas usadas, temas abordados, resposta do paciente…" maxlength="3000"></textarea><div class="ferr">Obrigatório.</div></div>
+      <div class="fg gc"><label class="fl">Plano terapêutico</label><textarea id="ms-pl" class="fi" placeholder="Objetivos e intervenções para a próxima sessão…" maxlength="1000"></textarea></div>
+      <div class="fg gc" style="position:relative"><label class="fl">Hipótese diagnóstica (CID-10 / DSM-5)</label><input type="text" id="ms-cid" class="fi" placeholder="Digite o código ou nome…" maxlength="120" oninput="CID.search(this.value)" autocomplete="off"><div id="cid-drop" style="display:none;position:absolute;left:0;right:0;top:100%;background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r8);box-shadow:var(--s3);max-height:180px;overflow-y:auto;z-index:50"></div></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-sess')">Cancelar</button><button class="btn btn-p" onclick="Sess.save()">💾 Registrar evolução</button></div>
+  </div>
+</div>
+
+<div class="mbg" id="m-appt" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="mh"><h3 class="mtitle" id="m-appt-title">Novo Agendamento</h3><button class="mcls" aria-label="Fechar" onclick="Appts._editId=null;M.close('m-appt')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="g2">
+      <div class="fg gc" id="fg-ag-p"><label class="fl">Paciente *</label><select id="ag-p" class="fi fsel"><option value="">— Selecione —</option></select><div class="ferr">Selecione um paciente.</div></div>
+      <div class="fg" id="fg-ag-d"><label class="fl">Data *</label><input type="date" id="ag-d" class="fi" min="" max=""><div class="ferr">Obrigatório.</div></div>
+      <div class="fg" id="fg-ag-h"><label class="fl">Horário *</label><input type="time" id="ag-h" class="fi"><div class="ferr">Obrigatório.</div></div>
+      <div class="fg"><label class="fl">Sala</label><select id="ag-sala" class="fi fsel"><option>Sala 01</option><option>Sala 02</option><option>Sala 03</option><option>Sala 04</option><option>Online</option></select></div>
+      <div class="fg"><label class="fl">Profissional responsável</label><input type="text" id="ag-prof" class="fi" placeholder="Psicólogo(a) Voluntário(a) ou Estagiário(a)" maxlength="80"></div>
+      <div class="fg gc"><label class="fl">Observações</label><textarea id="ag-obs" class="fi" placeholder="Notas sobre o agendamento…" maxlength="500"></textarea></div>
+      <div class="fg"><label class="fl">Recorrência</label><select id="ag-rec" class="fi fsel"><option value="">Nenhuma</option><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></div>
+      <div class="fg"><label class="fl">Repetir (vezes)</label><input type="number" id="ag-rec-n" class="fi" value="1" min="1" max="24" placeholder="1"></div>
+      <div class="fg gc"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.8rem;font-weight:500;color:var(--ink7)"><input type="checkbox" id="ag-wa" checked style="width:13px;height:13px;accent-color:var(--b6)">Enviar confirmação via WhatsApp ao paciente</label></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-appt')">Cancelar</button><button class="btn btn-p" onclick="Appts.save()">Agendar</button></div>
+  </div>
+</div>
+
+<div class="mbg" id="m-exp" role="dialog" aria-modal="true">
+  <div class="modal mn">
+    <div class="mh"><h3 class="mtitle" id="m-exp-title">Lançamento Financeiro</h3><button class="mcls" aria-label="Fechar" onclick="Fin._editId=null;M.close('m-exp')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="g2">
+      <div class="fg" id="fg-fd"><label class="fl">Data *</label><input type="date" id="f-d" class="fi" min="2020-01-01" max=""><div class="ferr">Obrigatório.</div></div>
+      <div class="fg"><label class="fl">Tipo</label><select id="f-t" class="fi fsel"><option value="despesa">Despesa</option><option value="receita">Receita</option></select></div>
+      <div class="fg gc" id="fg-fdesc"><label class="fl">Descrição *</label><input type="text" id="f-desc" class="fi" placeholder="Ex: Material de escritório" maxlength="100"><div class="ferr">Obrigatório.</div></div>
+      <div class="fg"><label class="fl">Categoria</label><select id="f-cat" class="fi fsel"><option>Material</option><option>Equipamento</option><option>Infraestrutura</option><option>Capacitação</option><option>Repasse CESMAC</option><option>Outros</option></select></div>
+      <div class="fg" id="fg-fval"><label class="fl">Valor (R$) *</label><input type="number" id="f-val" class="fi" placeholder="0,00" min="0.01" step="0.01"><div class="ferr">Informe um valor válido.</div></div>
+      <div class="fg gc"><label class="fl">Comprovante / NF</label><input type="text" id="f-comp" class="fi" placeholder="Nº do comprovante ou nota fiscal" maxlength="80"></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-exp')">Cancelar</button><button class="btn btn-p" onclick="Fin.save()">Salvar</button></div>
+  </div>
+</div>
+
+<div class="mbg" id="m-ana" role="dialog" aria-modal="true">
+  <div class="modal mxl">
+    <div class="mh"><h3 class="mtitle" id="ana-title">Anamnese</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-ana')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="fg" style="margin-bottom:14px"><label class="fl">Paciente</label><select id="ana-pac" class="fi fsel" style="max-width:340px"><option value="">— Selecione o paciente —</option></select></div>
+    <div id="ana-body"></div>
+    <div class="mfoot">
+      <button class="btn btn-wa btn-sm" onclick="Ana.wa()"><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a9.716 9.716 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413z"/></svg>WhatsApp</button>
+      <button class="btn btn-s btn-sm" onclick="Ana.txt()"><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Exportar .txt</button>
+      <button class="btn btn-s btn-sm" onclick="M.close('m-ana')">Fechar</button>
+      <button class="btn btn-p btn-sm" onclick="Ana.save()">💾 Salvar anamnese</button>
+    </div>
+  </div>
+</div>
+
+<div class="mbg" id="m-vinculo" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="mh"><h3 class="mtitle">Criar Vínculo</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-vinculo')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="fg"><label class="fl">Estagiário(a) *</label><select id="vc-est" class="fi fsel"><option value="">— Selecione —</option></select></div>
+    <div class="fg"><label class="fl">Paciente *</label><select id="vc-pac" class="fi fsel"><option value="">— Selecione —</option></select></div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-vinculo')">Cancelar</button><button class="btn btn-p" onclick="Sup.saveVinculo()">Criar vínculo</button></div>
+  </div>
+</div>
+
+<div class="mbg" id="m-search" role="dialog" aria-modal="true">
+  <div class="modal mn">
+    <div class="mh"><h3 class="mtitle">Resultados da busca</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-search')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div id="search-res"></div>
+    <div class="mfoot"><button class="btn btn-s btn-sm" onclick="M.close('m-search')">Fechar</button></div>
+  </div>
+</div>
+
+<div id="toasth" aria-live="polite"></div>
+<script src="app.js"></script>
+<div class="mbg" id="m-plan" role="dialog" aria-modal="true">
+  <div class="modal mw">
+    <div class="mh"><h3 class="mtitle" id="m-plan-title">Plano Terapêutico Individualizado</h3><button class="mcls" aria-label="Fechar" onclick="M.close('m-plan')"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
+    <div class="info-box" style="margin-bottom:14px">Plano vinculado ao paciente selecionado no prontuário.</div>
+    <div class="g2">
+      <div class="fg gc"><label class="fl">Demanda principal</label><textarea id="pl-dem" class="fi" rows="2" placeholder="Queixa e contexto clínico…" maxlength="500"></textarea></div>
+      <div class="fg gc"><label class="fl">Objetivos terapêuticos</label><textarea id="pl-obj" class="fi" rows="3" placeholder="1. Reduzir sintomas ansiosos&#10;2. Desenvolver estratégias de enfrentamento&#10;3. Fortalecer rede de apoio" maxlength="800"></textarea></div>
+      <div class="fg gc"><label class="fl">Intervenções planejadas</label><textarea id="pl-int" class="fi" rows="3" placeholder="TCC, psicoeducação, técnicas de relaxamento…" maxlength="800"></textarea></div>
+      <div class="fg"><label class="fl">Frequência</label><select id="pl-freq" class="fi fsel"><option>Semanal</option><option>Quinzenal</option><option>Mensal</option></select></div>
+      <div class="fg"><label class="fl">Previsão de sessões</label><input type="number" id="pl-qty" class="fi" placeholder="12" min="1" max="100"></div>
+      <div class="fg"><label class="fl">Data de revisão</label><input type="date" id="pl-rev" class="fi"></div>
+      <div class="fg"><label class="fl">Hipótese diagnóstica</label><input type="text" id="pl-cid" class="fi" placeholder="CID / DSM" maxlength="120"></div>
+      <div class="fg gc"><label class="fl">Observações</label><textarea id="pl-obs" class="fi" rows="2" placeholder="Riscos, encaminhamentos, acordos…" maxlength="500"></textarea></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-s" onclick="M.close('m-plan')">Cancelar</button><button class="btn btn-s" onclick="Plano.exportPDF()"><svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg>PDF</button><button class="btn btn-p" onclick="Plano.save()">Salvar plano</button></div>
+  </div>
+</div>
+</body>
+</html>
