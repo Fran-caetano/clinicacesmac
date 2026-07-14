@@ -262,6 +262,34 @@ var AuditLog = {
 var Auth = {
   _sessionTimer: null,
   _fp: function(){try{return btoa(navigator.userAgent.slice(0,40)+screen.width+screen.height+navigator.language).slice(0,24);}catch(e){return'';}},
+  _PBKDF2_ITER: 150000,
+  _canPBKDF2: function(){ try { return !!(window.crypto && window.crypto.subtle && window.TextEncoder && window.isSecureContext !== false); } catch(e){ return false; } },
+  _randSalt: function(){
+    var b = new Uint8Array(16);
+    (window.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach(function(_, i){ b[i] = Math.floor(Math.random() * 256); });
+    return Array.prototype.map.call(b, function(x){ return ('0' + x.toString(16)).slice(-2); }).join('');
+  },
+  _pbkdf2: function(pass, salt, iter){
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveBits'])
+      .then(function(key){ return crypto.subtle.deriveBits({name:'PBKDF2', hash:'SHA-256', salt: enc.encode(salt), iterations: iter}, key, 256); })
+      .then(function(bits){ return Array.prototype.map.call(new Uint8Array(bits), function(x){ return ('0' + x.toString(16)).slice(-2); }).join(''); });
+  },
+  // gera hash forte (PBKDF2-SHA256) quando o navegador suporta; senão usa o hash interno
+  makeHash: function(pass){
+    if(!this._canPBKDF2()) return Promise.resolve(this._hash(pass));
+    var salt = this._randSalt(), iter = this._PBKDF2_ITER, self = this;
+    return this._pbkdf2(pass, salt, iter).then(function(h){ return 'pbkdf2$' + iter + '$' + salt + '$' + h; });
+  },
+  verifyHash: function(pass, stored){
+    if(!stored) return Promise.resolve(false);
+    if(stored.indexOf('pbkdf2$') === 0){
+      if(!this._canPBKDF2()) return Promise.resolve(false);
+      var p = stored.split('$');
+      return this._pbkdf2(pass, p[2], parseInt(p[1], 10)).then(function(h){ return h === p[3]; }).catch(function(){ return false; });
+    }
+    return Promise.resolve(stored === this._hash(pass) || stored === this._hashLegacy(pass));
+  },
   _hashLegacy: function(s){ var h = 0x811c9dc5; for(var i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; } return h.toString(16); },
   _hash: function(s){
     s = 'psi$cesmac#' + s + '#2024';
@@ -304,25 +332,30 @@ var Auth = {
       }
       if(rl.n>=5)rl={n:0,t:0};
       var u = users.find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
-      if(!u || (u.hash !== self._hash(pass) && u.hash !== self._hashLegacy(pass))){
-        rl.n++;rl.t=Date.now();localStorage.setItem(rlKey,JSON.stringify(rl));
-        Toast.show('E-mail ou senha incorretos.'+(rl.n>=3?' ('+(5-rl.n)+' restante'+(5-rl.n!==1?'s':'')+')':""),'err');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
-        return;
-      }
-      if(u.pending){
-        Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        return;
-      }
-      if(u.hash === self._hashLegacy(pass) && u.hash !== self._hash(pass)){
-        u.hash = self._hash(pass); DB.set('users', users);
-      }
-      AuditLog.log('Login', 'Acesso: ' + u.email, 'login');
-      self._start(u);
+      (u ? self.verifyHash(pass, u.hash) : Promise.resolve(false)).then(function(ok){
+        if(!ok){
+          rl.n++;rl.t=Date.now();localStorage.setItem(rlKey,JSON.stringify(rl));
+          Toast.show('E-mail ou senha incorretos.'+(rl.n>=3?' ('+(5-rl.n)+' restante'+(5-rl.n!==1?'s':'')+')':""),'err');
+          if(btn) btn.disabled = false;
+          if(txt) txt.textContent = 'Acessar sistema';
+          AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
+          return;
+        }
+        if(u.pending){
+          Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
+          if(btn) btn.disabled = false;
+          if(txt) txt.textContent = 'Acessar sistema';
+          return;
+        }
+        // migra hashes fracos (FNV/custom) para PBKDF2 no primeiro login bem-sucedido
+        var upgrade = (u.hash.indexOf('pbkdf2$') !== 0 && Auth._canPBKDF2())
+          ? self.makeHash(pass).then(function(h){ u.hash = h; DB.set('users', users); })
+          : Promise.resolve();
+        upgrade.then(function(){
+          AuditLog.log('Login', 'Acesso: ' + u.email, 'login');
+          self._start(u);
+        });
+      });
     }, 600);
   },
   register: function(){
@@ -336,12 +369,14 @@ var Auth = {
     if(users.find(function(u){ return u.email.toLowerCase() === email.toLowerCase(); })){
       Toast.show('E-mail já cadastrado.', 'err'); fErr('fg-rg-e', true); return;
     }
-    var u = {id: uid(), nome: nome, email: email, hash: this._hash(pass), role: role, pending: true, createdAt: new Date().toISOString()};
-    users.push(u); DB.set('users', users);
-    AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
-    Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
-    setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
-    fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    this.makeHash(pass).then(function(hash){
+      var u = {id: uid(), nome: nome, email: email, hash: hash, role: role, pending: true, createdAt: new Date().toISOString()};
+      users.push(u); DB.set('users', users);
+      AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
+      Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
+      setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
+      fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    });
   },
   quick: function(role){
     var DEMO = {
@@ -353,13 +388,18 @@ var Auth = {
     };
     var d = DEMO[role]; if(!d) return;
     var users = DB.get('users', []);
-    if(!users.find(function(u){ return u.email === d.email; })){
-      users.push({id: uid(), nome: d.nome, email: d.email, hash: this._hash(d.pass), role: d.role, pending: false, createdAt: new Date().toISOString()});
-      DB.set('users', users);
-    }
-    setVal('li-e', d.email);
-    var lp = document.getElementById('li-p'); if(lp) lp.value = d.pass;
-    this.login();
+    var self = this;
+    var ensure = users.find(function(u){ return u.email === d.email; })
+      ? Promise.resolve()
+      : this.makeHash(d.pass).then(function(hash){
+          users.push({id: uid(), nome: d.nome, email: d.email, hash: hash, role: d.role, pending: false, createdAt: new Date().toISOString()});
+          DB.set('users', users);
+        });
+    ensure.then(function(){
+      setVal('li-e', d.email);
+      var lp = document.getElementById('li-p'); if(lp) lp.value = d.pass;
+      self.login();
+    });
   },
   _recoverEmail: '', _recoverToken: '', _recoverExpiry: 0,
   recoverStep1: function(){
@@ -390,14 +430,17 @@ var Auth = {
     var em = this._recoverEmail;
     var u = users.find(function(x){ return x.email.toLowerCase() === em.toLowerCase(); });
     if(!u){ Toast.show('Erro: usuário não encontrado.', 'err'); return; }
-    u.hash = this._hash(np); DB.set('users', users);
-    AuditLog.log('Senha redefinida', this._recoverEmail, 'login');
+    var self = this;
+    this.makeHash(np).then(function(hash){
+    u.hash = hash; DB.set('users', users);
+    AuditLog.log('Senha redefinida', self._recoverEmail, 'login');
     Toast.show('Senha redefinida! Faça login.', 'ok');
     if(el1) el1.value = ''; if(el2) el2.value = '';
     setVal('rec-tok', ''); setVal('rec-e', '');
     document.getElementById('rec-s3').classList.remove('on');
     document.getElementById('rec-s1').classList.add('on');
-    this.tab('login', document.querySelector('#login-tabs .tabb'));
+    self.tab('login', document.querySelector('#login-tabs .tabb'));
+    });
   },
   _start: function(u){
     localStorage.removeItem('psi_rl');
@@ -470,9 +513,22 @@ var Auth = {
         setTimeout(function(){ Toast.show('Primeiro acesso? Vá em Perfil para alterar sua senha.', 'inf'); }, 2000);
       }
       Dashboard.render(); Lembrete.render(); Agenda.render(); Badge.update(); Notif.render(); Notif.dot();
+      Auth._lastActivity = Date.now();
+      if(!Auth._activityBound){
+        Auth._activityBound = true;
+        ['click','keydown','touchstart'].forEach(function(ev){
+          document.addEventListener(ev, function(){ Auth._lastActivity = Date.now(); }, {passive:true});
+        });
+      }
       if(Auth._sessionTimer) clearInterval(Auth._sessionTimer);
       Auth._sessionTimer = setInterval(function(){
         var s = DB.get('session', null); if(!s) return;
+        // encerra sessão após 30 min sem interação (LGPD/segurança de terminal compartilhado)
+        if(Date.now() - Auth._lastActivity > 30 * 60 * 1000){
+          clearInterval(Auth._sessionTimer);
+          AuditLog.log('Sessão expirada', 'Inatividade de 30 minutos', 'seguranca');
+          Auth.logout(); return;
+        }
         var remaining = (8 * 3600 * 1000) - (Date.now() - s.at);
         if(remaining <= 0){ clearInterval(Auth._sessionTimer); Auth.logout(); return; }
         if(remaining <= 5 * 60 * 1000 && remaining > 4 * 60 * 1000){
@@ -498,15 +554,14 @@ var Auth = {
       {nome:'Prof. Carlos Melo',   email:'prof@cesmac.br',     pass:'Prof@2024!',   role:'professor'}
     ];
     var users = DB.get('users', []);
-    var changed = false;
     var self = this;
-    SECTORS.forEach(function(s){
-      if(!users.find(function(u){ return u.email === s.email; })){
-        users.push({id: uid(), nome: s.nome, email: s.email, hash: self._hash(s.pass), role: s.role, pending: false, createdAt: new Date().toISOString()});
-        changed = true;
-      }
-    });
-    if(changed) DB.set('users', users);
+    var missing = SECTORS.filter(function(s){ return !users.find(function(u){ return u.email === s.email; }); });
+    if(!missing.length) return;
+    Promise.all(missing.map(function(s){
+      return self.makeHash(s.pass).then(function(hash){
+        users.push({id: uid(), nome: s.nome, email: s.email, hash: hash, role: s.role, pending: false, createdAt: new Date().toISOString()});
+      });
+    })).then(function(){ DB.set('users', users); _updateLoginStats(); });
   },
   restore: function(){
     var s = DB.get('session', null);
@@ -576,7 +631,7 @@ var Dashboard = {
     this._chartMonthly(appts); this._chartStatus(pats); this._upcoming(appts, pats); this._recent(pats);
   },
   _chartMonthly: function(appts){
-    var ctx = document.getElementById('ch-monthly'); if(!ctx) return;
+    var ctx = document.getElementById('ch-monthly'); if(!ctx || typeof Chart === 'undefined') return;
     Charts.kill('monthly');
     var months = []; var now = new Date();
     for(var i = 5; i >= 0; i--){ var d = new Date(now.getFullYear(), now.getMonth()-i, 1); months.push({label: d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}), ym: d.toISOString().slice(0,7)}); }
@@ -584,7 +639,7 @@ var Dashboard = {
     Charts.set('monthly', new Chart(ctx.getContext('2d'), {type:'bar', data:{labels:months.map(function(m){ return m.label; }), datasets:[{label:'Atendimentos', data:data, backgroundColor:'rgba(0,102,255,.78)', borderRadius:6, borderSkipped:false}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{stepSize:1}, grid:{color:'rgba(0,0,0,.05)'}}, x:{grid:{display:false}}}}}));
   },
   _chartStatus: function(pats){
-    var ctx = document.getElementById('ch-status'); if(!ctx) return;
+    var ctx = document.getElementById('ch-status'); if(!ctx || typeof Chart === 'undefined') return;
     Charts.kill('status');
     var ativo = pats.filter(function(p){ return p.status==='ativo'; }).length;
     var fin = pats.filter(function(p){ return p.status==='finalizado'; }).length;
@@ -640,21 +695,6 @@ var Pats = {
     if(btn) btn.classList.add('on');
     var ps = document.getElementById('pats-search'); if(ps) ps.value = '';
     this.render();
-  },
-  changePass: function(){
-    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
-    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
-    if(newpw.length < 6){ Toast.show('Senha nova deve ter pelo menos 6 caracteres.','err'); return; }
-    var sess = DB.get('session',{}), users = DB.get('users',[]);
-    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
-    if(u.hash !== Auth._hash(oldpw) && u.hash !== Auth._hashLegacy(oldpw)){
-      Toast.show('Senha atual incorreta.','err'); return;
-    }
-    u.hash = Auth._hash(newpw);
-    DB.set('users', users);
-    setVal('pf-oldpw',''); setVal('pf-newpw','');
-    AuditLog.log('Senha alterada', sess.nome, 'config');
-    Toast.show('Senha alterada com sucesso!','ok');
   },
   save: function(){
     var nome = getVal('mp-n'), nasc = getVal('mp-nasc');
@@ -854,7 +894,7 @@ var Rec = {
       }).join(''); }
     }
     var moodCtx = document.getElementById('ch-mood');
-    if(moodCtx){
+    if(moodCtx && typeof Chart !== 'undefined'){
       Charts.kill('mood');
       var sorted = sessions.slice().sort(function(a,b){ return a.data.localeCompare(b.data); });
       Charts.set('mood', new Chart(moodCtx.getContext('2d'), {type:'line', data:{labels:sorted.map(function(s){ return fmtDate(s.data); }), datasets:[{label:'Humor', data:sorted.map(function(s){ return parseInt(s.humor)||3; }), borderColor:'rgba(0,102,255,.85)', backgroundColor:'rgba(0,102,255,.08)', fill:true, tension:.4, pointRadius:5, pointBackgroundColor:'rgba(0,102,255,.9)', pointBorderColor:'#fff', pointBorderWidth:2}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{min:1,max:5,ticks:{stepSize:1,callback:function(v){ return ['','😞','😟','😐','🙂','😄'][v]||v; }}, grid:{color:'rgba(0,0,0,.04)'}}, x:{grid:{display:false}, ticks:{maxTicksLimit:6}}}}}));
@@ -1338,6 +1378,23 @@ var Sup = {
 
 // perfil profissional
 var Perfil = {
+  changePass: function(){
+    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
+    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
+    if(newpw.length < 8){ Toast.show('Senha nova deve ter pelo menos 8 caracteres.','err'); return; }
+    var sess = DB.get('session',{}), users = DB.get('users',[]);
+    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
+    Auth.verifyHash(oldpw, u.hash).then(function(ok){
+      if(!ok){ Toast.show('Senha atual incorreta.','err'); return; }
+      Auth.makeHash(newpw).then(function(hash){
+        u.hash = hash;
+        DB.set('users', users);
+        setVal('pf-oldpw',''); setVal('pf-newpw','');
+        AuditLog.log('Senha alterada', sess.nome, 'seguranca');
+        Toast.show('Senha alterada com sucesso!','ok');
+      });
+    });
+  },
   render: function(){
     var sess = DB.get('session', {});
     var users = DB.get('users', []);
@@ -1361,7 +1418,7 @@ var Perfil = {
       + '<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-p" onclick="Perfil.save()">Salvar perfil</button></div>'
       + '<div class="card" style="margin-top:16px"><div class="cardh"><h3>Alterar senha</h3></div><div class="cardb"><div class="g2">'
       + '<div class="fg"><label class="fl">Senha atual</label><input type="password" id="pf-oldpw" class="fi" placeholder="Senha atual"></div>'
-      + '<div class="fg"><label class="fl">Nova senha</label><input type="password" id="pf-newpw" class="fi" placeholder="Mínimo 6 caracteres"></div>'
+      + '<div class="fg"><label class="fl">Nova senha</label><input type="password" id="pf-newpw" class="fi" placeholder="Mínimo 8 caracteres" autocomplete="new-password"></div>'
       + '</div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-s" onclick="Perfil.changePass()">Alterar senha</button></div></div></div>';
   },
   save: function(){
@@ -1435,7 +1492,7 @@ var Search = {
         return '<div class="li click" data-pid="' + esc(p.id) + '" onclick="Rec.view(this.getAttribute(\'data-pid\'));M.close(\'m-search\')">'
           + avHtml(p, 28, '.64rem')
           + '<div class="linf"><div class="liname">'+hl(p.nome,val)+'</div>'
-          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' \u00b7 '+(p.tel||'\u2014')+(p.cpf?' \u00b7 '+p.cpf:'')+'</div></div>'
+          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' \u00b7 '+esc(p.tel||'\u2014')+(p.cpf?' \u00b7 '+esc(p.cpf):'')+'</div></div>'
           + '<span style="font-size:.62rem;color:var(--ink3)">'+Math.round(r.s)+'%</span></div>';
       }).join('');
       M.open('m-search');
@@ -2264,8 +2321,12 @@ document.addEventListener('keydown', function(e){
 (function(){ var t = DB.get('theme','light'); document.documentElement.setAttribute('data-theme', t); })();
 
 // inicialização
-window.onerror = function(msg, src, line){ console.warn('Erro:', msg, 'L'+line); return true; };
-window.addEventListener('unhandledrejection', function(e){ console.warn('Promise:', e.reason); e.preventDefault(); });
+window.onerror = function(msg, src, line){
+  console.error('Erro não tratado:', msg, src + ':' + line);
+  try { Toast.show('Ocorreu um erro inesperado. Se persistir, contate o suporte.', 'err'); } catch(e){}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e){ console.error('Promise rejeitada:', e.reason); });
 
 document.addEventListener('DOMContentLoaded', function(){
   (function(){

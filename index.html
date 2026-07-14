@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; manifest-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%230066ff%22/><text x=%2232%22 y=%2243%22 text-anchor=%22middle%22 font-size=%2228%22 font-family=%22sans-serif%22 font-weight=%22bold%22 fill=%22white%22>P</text></svg>">
 <meta property="og:title" content="PsiCESMAC — Clínica Escola de Psicologia">
 <meta property="og:description" content="Sistema de Gestão Clínica Integrada — CESMAC do Agreste, Arapiraca/AL">
@@ -18,7 +20,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -75,7 +77,7 @@
           <input type="email" id="rg-e" class="fi" placeholder="seu@email.com" maxlength="120">
           <div class="ferr">E-mail inválido.</div></div>
         <div class="fg" id="fg-rg-p"><label class="fl">Senha * (mín. 8 car.)</label>
-          <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72">
+          <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72" autocomplete="new-password">
           <div class="ferr">Mínimo 8 caracteres.</div></div>
         <div class="fg gc"><label class="fl">Função solicitada</label>
           <select id="rg-r" class="fi fsel">
@@ -107,9 +109,9 @@
         <div class="rec-ico">✅</div>
         <p class="rec-msg">Token validado. Defina sua nova senha.</p>
         <div class="fg"><label class="fl">Nova senha *</label>
-          <input type="password" id="rec-np" class="fi" placeholder="Mín. 8 caracteres" maxlength="72"></div>
+          <input type="password" id="rec-np" class="fi" placeholder="Mín. 8 caracteres" maxlength="72" autocomplete="new-password"></div>
         <div class="fg"><label class="fl">Confirme a nova senha *</label>
-          <input type="password" id="rec-np2" class="fi" placeholder="Repita a senha" maxlength="72"></div>
+          <input type="password" id="rec-np2" class="fi" placeholder="Repita a senha" maxlength="72" autocomplete="new-password"></div>
         <button class="btn btn-p btn-w" onclick="Auth.recoverStep3()">Redefinir senha</button>
       </div>
     </div>
