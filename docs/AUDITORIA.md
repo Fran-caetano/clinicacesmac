@@ -23,6 +23,17 @@ Data: 2026-07-13 · Escopo: `index.html`, `app.js`, `style.css`, integração Su
   - trilha de auditoria **append-only** (`audit_log`): autenticados inserem, só admin lê, ninguém altera/apaga;
   - `CHECK constraints` de domínio (status, prioridade, tipo, humor) e índices.
 
+## 1b. Segunda rodada de correções (2026-07-14)
+
+- **Conflito de agenda por sala**: a checagem de conflito passou a considerar a sala — salas diferentes podem atender no mesmo horário (antes o sistema limitava a clínica a 1 atendimento por horário).
+- **Supervisão visível para o admin**: `Sup.render` bloqueava qualquer papel diferente de professor; agora admin também vê estagiários e vínculos.
+- **Lembrete WhatsApp direcionado**: o link `wa.me` agora inclui o telefone do paciente (com DDI 55), em vez de abrir sem destinatário.
+- **Código morto removido**: par duplicado de `openNew`/`edit` dentro de `Appts` (cópia esquecida das funções de paciente).
+- **CSV seguro**: novo helper `csvCell` (escape de `;`, aspas e quebras de linha; neutralização de fórmulas `=`/`+`/`-`/`@` contra CSV injection) aplicado às exportações de pacientes, sessões e financeiro.
+- **Renovação de sessão sem `confirm` bloqueante**: renova automaticamente se houve atividade nos últimos 5 min; senão avisa por toast e deixa expirar.
+- **Notificações privadas por usuário**: cada notificação carrega o `uid` do usuário e só aparece para ele (privacidade em computador compartilhado).
+- **Acessibilidade**: toasts com `role="alert"`/`role="status"`; labels associados (`for`/`id`) nos formulários de login, cadastro e recuperação.
+
 ## 2. Riscos residuais conhecidos (roadmap)
 
 Estes pontos exigem o backend (Supabase Auth + Edge Functions) e não podem ser resolvidos apenas no frontend:

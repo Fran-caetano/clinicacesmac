@@ -59,10 +59,10 @@
       <button class="tabb" onclick="Auth.tab('recover',this)">Recuperar</button>
     </div>
     <div id="pn-login">
-      <div class="fg" id="fg-li-e"><label class="fl">E-mail</label>
+      <div class="fg" id="fg-li-e"><label class="fl" for="li-e">E-mail</label>
         <input type="email" id="li-e" class="fi" placeholder="seu@email.com" autocomplete="email" maxlength="120" onkeydown="if(event.key==='Enter')Auth.login()">
         <div class="ferr">Informe um e-mail válido.</div></div>
-      <div class="fg" id="fg-li-p"><label class="fl">Senha</label>
+      <div class="fg" id="fg-li-p"><label class="fl" for="li-p">Senha</label>
         <input type="password" id="li-p" class="fi" placeholder="••••••••" autocomplete="current-password" maxlength="72" onkeydown="if(event.key==='Enter')Auth.login()">
         <div class="ferr">Informe a senha.</div></div>
       <button class="btn btn-p btn-w btn-lg" id="btn-login" onclick="Auth.login()"><span id="btn-login-txt">Acessar sistema</span></button>
@@ -70,16 +70,16 @@
     </div>
     <div id="pn-register" style="display:none">
       <div class="g2">
-        <div class="fg gc" id="fg-rg-n"><label class="fl">Nome completo *</label>
+        <div class="fg gc" id="fg-rg-n"><label class="fl" for="rg-n">Nome completo *</label>
           <input type="text" id="rg-n" class="fi" placeholder="Nome Sobrenome" maxlength="80">
           <div class="ferr">Campo obrigatório.</div></div>
-        <div class="fg" id="fg-rg-e"><label class="fl">E-mail *</label>
+        <div class="fg" id="fg-rg-e"><label class="fl" for="rg-e">E-mail *</label>
           <input type="email" id="rg-e" class="fi" placeholder="seu@email.com" maxlength="120">
           <div class="ferr">E-mail inválido.</div></div>
-        <div class="fg" id="fg-rg-p"><label class="fl">Senha * (mín. 8 car.)</label>
+        <div class="fg" id="fg-rg-p"><label class="fl" for="rg-p">Senha * (mín. 8 car.)</label>
           <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72" autocomplete="new-password">
           <div class="ferr">Mínimo 8 caracteres.</div></div>
-        <div class="fg gc"><label class="fl">Função solicitada</label>
+        <div class="fg gc"><label class="fl" for="rg-r">Função solicitada</label>
           <select id="rg-r" class="fi fsel">
             <option value="recepcao">Recepção</option>
             <option value="estagiario">Estagiário(a)</option>
@@ -93,7 +93,7 @@
       <div class="rec-step on" id="rec-s1">
         <div class="rec-ico">🔐</div>
         <p class="rec-msg">Informe seu e-mail para receber o token de recuperação de senha.</p>
-        <div class="fg" id="fg-rec-e"><label class="fl">E-mail cadastrado</label>
+        <div class="fg" id="fg-rec-e"><label class="fl" for="rec-e">E-mail cadastrado</label>
           <input type="email" id="rec-e" class="fi" placeholder="seu@email.com" maxlength="120">
           <div class="ferr">E-mail não encontrado no sistema.</div></div>
         <button class="btn btn-p btn-w" onclick="Auth.recoverStep1()">Enviar token</button>

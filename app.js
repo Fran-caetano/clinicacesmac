@@ -53,6 +53,13 @@ function avHtml(p, size, fs){
 }
 function avBg(n){ var h = ['#0066ff','#0a4d22','#b91c1c','#6d28d9','#0e7490','#b45309','#002299','#16a34a']; var s = 0; for(var i = 0; i < (n||'').length; i++) s += n.charCodeAt(i); return h[s % h.length]; }
 function empty(t, s){ return '<div class="es"><div class="esico"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg></div><h3>' + esc(t) + '</h3>' + (s ? '<p>' + esc(s) + '</p>' : '') + '</div>'; }
+// célula CSV segura: escapa aspas/; e neutraliza fórmulas (CSV injection)
+function csvCell(v){
+  var s = String(v == null ? '' : v);
+  if(/^[=+\-@]/.test(s)) s = "'" + s;
+  if(/[";\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
 function _download(name, txt, mime){ var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], {type: mime || 'text/plain'})); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
 function _visiblePats(pats, sess){
@@ -136,14 +143,20 @@ var Charts = {
 
 // notificações
 var Notif = {
+  // notificações são privadas por usuário (uid); registros antigos sem uid ficam ocultos
+  _mine: function(){
+    var sess = DB.get('session', {});
+    return DB.get('notifs', []).filter(function(n){ return n.uid === sess.userId; });
+  },
   add: function(msg, type){
+    var sess = DB.get('session', {});
     var list = DB.get('notifs', []);
-    list.unshift({id: uid(), msg: msg, type: type || 'inf', read: false, at: new Date().toISOString()});
-    DB.set('notifs', list.slice(0, 60));
+    list.unshift({id: uid(), uid: sess.userId || null, msg: msg, type: type || 'inf', read: false, at: new Date().toISOString()});
+    DB.set('notifs', list.slice(0, 120));
     this.render(); this.dot();
   },
   render: function(){
-    var list = DB.get('notifs', []);
+    var list = this._mine();
     var el = document.getElementById('nlist'); if(!el) return;
     if(!list.length){ el.innerHTML = '<div style="padding:18px;text-align:center;font-size:.78rem;color:var(--ink4)">Nenhuma notificação</div>'; return; }
     el.innerHTML = list.slice(0, 12).map(function(n){
@@ -160,11 +173,12 @@ var Notif = {
     DB.set('notifs', list); this.render(); this.dot();
   },
   readAll: function(){
-    DB.set('notifs', DB.get('notifs', []).map(function(n){ return Object.assign({}, n, {read: true}); }));
+    var sess = DB.get('session', {});
+    DB.set('notifs', DB.get('notifs', []).map(function(n){ return n.uid === sess.userId ? Object.assign({}, n, {read: true}) : n; }));
     this.render(); this.dot();
   },
   dot: function(){
-    var n = DB.get('notifs', []).filter(function(x){ return !x.read; }).length;
+    var n = this._mine().filter(function(x){ return !x.read; }).length;
     var d = document.getElementById('ndot'); if(d) d.style.display = n ? '' : 'none';
     var b = document.getElementById('bdg-au'); if(b) b.textContent = String(n);
   }
@@ -183,6 +197,7 @@ var Toast = {
     };
     var t = document.createElement('div');
     t.className = 'toast ' + cls;
+    t.setAttribute('role', type === 'err' ? 'alert' : 'status');
     t.innerHTML = '<svg viewBox="0 0 24 24">' + (icons[type] || icons.inf) + '</svg>' + esc(msg);
     th.appendChild(t);
     setTimeout(function(){ t.style.animation = 'tOut .25s forwards'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 260); }, dur || 3200);
@@ -531,9 +546,14 @@ var Auth = {
         }
         var remaining = (8 * 3600 * 1000) - (Date.now() - s.at);
         if(remaining <= 0){ clearInterval(Auth._sessionTimer); Auth.logout(); return; }
-        if(remaining <= 5 * 60 * 1000 && remaining > 4 * 60 * 1000){
-          var renew = confirm('Sua sessão expira em 5 minutos. Deseja continuar conectado?');
-          if(renew){ s.at = Date.now(); DB.set('session', s); Toast.show('Sessão renovada por mais 8 horas.', 'ok'); }
+        if(remaining <= 5 * 60 * 1000){
+          // renova automaticamente se houve atividade nos últimos 5 min; senão deixa expirar
+          if(Date.now() - Auth._lastActivity < 5 * 60 * 1000){
+            s.at = Date.now(); DB.set('session', s);
+            Toast.show('Sessão renovada automaticamente.', 'inf');
+          } else {
+            Toast.show('Sua sessão expira em ' + Math.ceil(remaining / 60000) + ' min. Interaja para renovar.', 'warn', 8000);
+          }
         }
       }, 60000);
     }, 380);
@@ -797,7 +817,7 @@ var Pats = {
   },
   exportCSV: function(){
     var pats=DB.get('patients',[]);if(!pats.length){Toast.show('Nenhum paciente.','warn');return;}
-    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',"'"+(p.queixa||'')+"'",p.enc||'',fmtDate((p.createdAt||'').slice(0,10))].join(';');}).join('\n');
+    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',p.queixa||'',p.enc||'',fmtDate((p.createdAt||'').slice(0,10))].map(csvCell).join(';');}).join('\n');
     _download('pacientes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Pacientes CSV','export');Toast.show('CSV exportado!','ok');
   },
   toggleStatus: function(id){
@@ -942,7 +962,7 @@ var Sess = {
   },
   exportCSV: function(){
     var ss=DB.get('sessions',[]),pats=DB.get('patients',[]);if(!ss.length){Toast.show('Nenhuma sessao.','warn');return;}
-    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',"'"+(s.res||'')+"'","'"+(s.plano||'')+"'",s.cid||'',fmtDate((s.createdAt||'').slice(0,10))].join(';');}).join('\n');
+    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',s.res||'',s.plano||'',s.cid||'',fmtDate((s.createdAt||'').slice(0,10))].map(csvCell).join(';');}).join('\n');
     _download('sessoes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Sessoes CSV','export');Toast.show('CSV exportado!','ok');
   },
   save: function(){
@@ -1037,16 +1057,18 @@ var Appts = {
     fErr('fg-ag-p', !pac); fErr('fg-ag-d', !data); fErr('fg-ag-h', !hora);
     if(!pac || !data || !hora){ Toast.show('Preencha os campos obrigatórios.', 'err'); return; }
     var appts = DB.get('appts', []);
-    var conflito = appts.find(function(x){ return x.data === data && x.hora === hora && x.status !== 'cancelado'; });
+    var sala = getVal('ag-sala');
+    // conflito apenas na mesma sala: salas diferentes podem atender em paralelo
+    var conflito = appts.find(function(x){ return x.data === data && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
     if(conflito){
       var cp = DB.get('patients',[]).find(function(x){ return x.id === conflito.pacienteId; });
-      Toast.show('Conflito: já existe consulta às ' + hora + ' em ' + fmtDate(data) + (cp ? ' (' + cp.nome.split(' ')[0] + ')' : '') + '.', 'err');
+      Toast.show('Conflito: ' + (sala||'a sala') + ' já ocupada às ' + hora + ' em ' + fmtDate(data) + (cp ? ' (' + cp.nome.split(' ')[0] + ')' : '') + '.', 'err');
       return;
     }
     if(this._editId){
       var appt = appts.find(function(x){ return x.id === Appts._editId; });
       if(appt){
-        var dup = appts.find(function(x){ return x.id !== Appts._editId && x.data === data && x.hora === hora && x.status !== 'cancelado'; });
+        var dup = appts.find(function(x){ return x.id !== Appts._editId && x.data === data && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
         if(dup){
           var cpd = DB.get('patients',[]).find(function(x){ return x.id === dup.pacienteId; });
           Toast.show('Conflito com ' + (cpd ? cpd.nome.split(' ')[0] : 'outro agendamento') + '.', 'err'); return;
@@ -1074,7 +1096,7 @@ var Appts = {
       }
       var dStr = d.toISOString().slice(0,10);
       if(ri > 0){
-        var dup = appts.find(function(x){ return x.data === dStr && x.hora === hora && x.status !== 'cancelado'; });
+        var dup = appts.find(function(x){ return x.data === dStr && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
         if(dup) continue;
       }
       var a = {id:uid(), pacienteId:pac, data:dStr, hora:hora, sala:getVal('ag-sala'), prof:getVal('ag-prof'), obs:getVal('ag-obs'), status:'agendado', rec:rec||'', createdAt:new Date().toISOString()};
@@ -1088,7 +1110,10 @@ var Appts = {
     var waEl = document.getElementById('ag-wa');
     if(waEl && waEl.checked && p && p.tel){
       var msg = '*Clínica Escola de Psicologia CESMAC*\n\nOlá, ' + (p?p.nome:'') + '! 😊\n\nSua consulta foi agendada:\n📅 ' + fmtDate(data) + ' às ' + hora + (a.sala ? '\n🏥 ' + a.sala : '') + '\n\nAguardamos você!';
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      // envia direto para o número do paciente (DDI 55 quando for número nacional de 10-11 dígitos)
+      var fone = (p.tel || '').replace(/\D/g, '');
+      if(fone.length === 10 || fone.length === 11) fone = '55' + fone;
+      window.open('https://wa.me/' + fone + '?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
     }
     ['ag-prof','ag-obs','ag-rec','ag-rec-n'].forEach(function(id){ setVal(id,''); });
     fClear('fg-ag-p','fg-ag-d','fg-ag-h');
@@ -1099,39 +1124,6 @@ var Appts = {
     if(a) a.status = st; DB.set('appts', appts);
     Agenda.render(); Badge.update(); Dashboard.render();
     Toast.show('Status: "' + st + '".', 'ok');
-  },
-  openNew: function(){
-    this._editId = null;
-    ['mp-n','mp-nasc','mp-tel','mp-email','mp-enc','mp-cpf','mp-queixa','mp-resp','mp-tel-resp','mp-obs'].forEach(function(id){ setVal(id,''); });
-    setVal('mp-sexo',''); setVal('mp-tipo','adulto'); setVal('mp-mod',''); setVal('mp-prio','media'); setVal('mp-enc','');
-    Pats._pendingFoto = null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    var fotoIn = document.getElementById('mp-foto'); if(fotoIn) fotoIn.value = '';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (t === 'atend' || t === 'dados');
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Cadastrar Paciente';
-    M.open('m-pat');
-  },
-  edit: function(id){
-    var p = DB.get('patients', []).find(function(x){ return x.id === id; }); if(!p) return;
-    this._editId = id;
-    setVal('mp-n', p.nome||''); setVal('mp-nasc', p.nasc||''); setVal('mp-sexo', p.sexo||'');
-    setVal('mp-tel', p.tel||''); setVal('mp-email', p.email||''); setVal('mp-tipo', p.tipo||'adulto');
-    setVal('mp-mod', p.mod||''); setVal('mp-prio', p.prio||'media'); setVal('mp-enc', p.enc||'');
-    setVal('mp-cpf', p.cpf||''); setVal('mp-queixa', p.queixa||'');
-    setVal('mp-resp', p.resp||''); setVal('mp-tel-resp', p.telResp||''); setVal('mp-obs', p.obs||'');
-    Pats._pendingFoto = p.foto || null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = p.foto ? '<img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (p.consentimentos||[]).some(function(c){ return c.tipo === t && c.aceito; });
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Editar Paciente';
-    M.open('m-pat');
   },
   openNew: function(){
     this._editId = null;
@@ -1230,7 +1222,7 @@ var Fin = {
   exportCSV: function(){
     var list = DB.get('finance',[]);
     if(!list.length){ Toast.show('Nenhum lançamento para exportar.','warn'); return; }
-    var csv = 'Data;Descrição;Categoria;Tipo;Valor;Comprovante\n' + list.map(function(l){ return fmtDate(l.data)+';'+l.desc+';'+l.cat+';'+l.tipo+';'+l.val+';'+(l.comp||'—'); }).join('\n');
+    var csv = 'Data;Descrição;Categoria;Tipo;Valor;Comprovante\n' + list.map(function(l){ return [fmtDate(l.data), l.desc, l.cat, l.tipo, l.val, l.comp||'—'].map(csvCell).join(';'); }).join('\n');
     _download('financeiro_cesmac_' + isoToday() + '.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8');
     AuditLog.log('Exportação', 'Relatório financeiro CSV', 'export');
     Toast.show('CSV exportado!','ok');
@@ -1320,7 +1312,7 @@ var Sup = {
     }).join('');
   },
   render: function(){
-    var sess = DB.get('session', {}); if(sess.role !== 'professor') return;
+    var sess = DB.get('session', {}); if(sess.role !== 'professor' && sess.role !== 'admin') return;
     var users = DB.get('users', []);
     var alunos = users.filter(function(u){ return u.role === 'estagiario' && !u.pending; });
     var el = document.getElementById('sup-alunos'); if(!el) return;
