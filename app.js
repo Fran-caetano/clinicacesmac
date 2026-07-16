@@ -276,6 +276,30 @@ var AuditLog = {
 // autenticação
 var Auth = {
   _sessionTimer: null,
+  // modo nuvem: Supabase Auth é a fonte de verdade; sem conexão, cai no modo local
+  _cloud: function(){ return !!(Cloud._sb); },
+  _errMsg: function(e){
+    var m = (e && e.message) || '';
+    if(/invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+    if(/already registered/i.test(m)) return 'E-mail já cadastrado.';
+    if(/rate limit/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
+    if(/email not confirmed/i.test(m)) return 'Confirme seu e-mail antes de entrar.';
+    if(/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor.';
+    return m || 'Erro inesperado.';
+  },
+  _profileToUser: function(p, email){
+    return {id: p.id, nome: p.nome, email: email || '', role: p.role, pending: p.pending, profil: p.profil || null, createdAt: p.created_at};
+  },
+  // espelha os perfis do Supabase no cache local usado pelas telas (Admin, Supervisão)
+  syncProfiles: function(){
+    if(!this._cloud()) return Promise.resolve();
+    return Cloud._sb.from('profiles').select('*').then(function(res){
+      if(res.error || !res.data) return;
+      DB.set('users', res.data.map(function(p){
+        return {id: p.id, nome: p.nome, email: p.email || '', role: p.role, pending: p.pending, profil: p.profil || null, createdAt: p.created_at};
+      }));
+    });
+  },
   _fp: function(){try{return btoa(navigator.userAgent.slice(0,40)+screen.width+screen.height+navigator.language).slice(0,24);}catch(e){return'';}},
   _PBKDF2_ITER: 150000,
   _canPBKDF2: function(){ try { return !!(window.crypto && window.crypto.subtle && window.TextEncoder && window.isSecureContext !== false); } catch(e){ return false; } },
@@ -338,6 +362,37 @@ var Auth = {
     if(btn) btn.disabled = true;
     if(txt) txt.innerHTML = '<svg style="width:13px;height:13px;fill:currentColor;animation:spin .7s linear infinite;display:inline-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 1 0 20A10 10 0 0 1 12 2zm0 2a8 8 0 0 0 0 16A8 8 0 0 0 12 4z" opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10h-2A8 8 0 0 0 12 4V2z"/></svg> Verificando…';
     var self = this;
+    var _fail = function(msg){
+      Toast.show(msg, 'err');
+      if(btn) btn.disabled = false;
+      if(txt) txt.textContent = 'Acessar sistema';
+      AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
+    };
+    // caminho nuvem: Supabase Auth é a autoridade
+    if(this._cloud()){
+      Cloud._sb.auth.signInWithPassword({email: email, password: pass}).then(function(res){
+        if(res.error){ _fail(self._errMsg(res.error)); return; }
+        var uid_ = res.data.user.id;
+        Cloud._sb.from('profiles').select('*').eq('id', uid_).single().then(function(pr){
+          if(pr.error || !pr.data){
+            Cloud._sb.auth.signOut();
+            _fail('Cadastro sem perfil ativo. Contate o administrador.');
+            return;
+          }
+          if(pr.data.pending){
+            Cloud._sb.auth.signOut();
+            Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
+            if(btn) btn.disabled = false;
+            if(txt) txt.textContent = 'Acessar sistema';
+            return;
+          }
+          var u = self._profileToUser(pr.data, email);
+          AuditLog.log('Login', 'Acesso: ' + email, 'login');
+          self.syncProfiles().then(function(){ self._start(u); });
+        });
+      }).catch(function(e){ _fail(self._errMsg(e)); });
+      return;
+    }
     setTimeout(function(){
       var users = DB.get('users', []);
       var rlKey='psi_rl',rl=JSON.parse(localStorage.getItem(rlKey)||'{"n":0,"t":0}');
@@ -380,6 +435,18 @@ var Auth = {
     var nok = nome.length > 0, eok = validEmail(email), pok = pass.length >= 8;
     fErr('fg-rg-n', !nok); fErr('fg-rg-e', !eok); fErr('fg-rg-p', !pok);
     if(!nok || !eok || !pok){ Toast.show('Corrija os campos destacados.', 'err'); return; }
+    var self = this;
+    if(this._cloud()){
+      Cloud._sb.auth.signUp({email: email, password: pass, options: {data: {nome: nome, role: role}}}).then(function(res){
+        if(res.error){ Toast.show(self._errMsg(res.error), 'err'); return; }
+        Cloud._sb.auth.signOut(); // signUp pode iniciar sessão; login só após aprovação
+        AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
+        Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
+        setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
+        fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+      });
+      return;
+    }
     var users = DB.get('users', []);
     if(users.find(function(u){ return u.email.toLowerCase() === email.toLowerCase(); })){
       Toast.show('E-mail já cadastrado.', 'err'); fErr('fg-rg-e', true); return;
@@ -394,6 +461,10 @@ var Auth = {
     });
   },
   quick: function(role){
+    if(this._cloud()){
+      Toast.show('Acesso demo indisponível com o Supabase conectado. Use seu cadastro real.', 'warn', 5000);
+      return;
+    }
     var DEMO = {
       admin:     {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin',     pending:false},
       recepcao:  {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao',  pending:false},
@@ -420,6 +491,15 @@ var Auth = {
   recoverStep1: function(){
     var email = getVal('rec-e');
     if(!validEmail(email)){ fErr('fg-rec-e', true); return; }
+    if(this._cloud()){
+      var self = this;
+      Cloud._sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname}).then(function(res){
+        if(res.error){ Toast.show(self._errMsg(res.error), 'err'); return; }
+        Toast.show('Enviamos um link de redefinição para ' + email + '. Verifique sua caixa de entrada.', 'inf', 8000);
+        setVal('rec-e','');
+      });
+      return;
+    }
     var u = DB.get('users', []).find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
     if(!u){ Toast.show('E-mail não encontrado.', 'err'); fErr('fg-rec-e', true); return; }
     this._recoverEmail = email;
@@ -459,7 +539,7 @@ var Auth = {
   },
   _start: function(u){
     localStorage.removeItem('psi_rl');
-    DB.set('session', {userId: u.id, nome: u.nome, role: u.role, at: Date.now(), fp: this._fp()});
+    DB.set('session', {userId: u.id, nome: u.nome, role: u.role, email: u.email || '', at: Date.now(), fp: this._fp()});
     var perms = PERMISSIONS[u.role] || {};
     var pages = perms.pages || [];
     var NAV = [
@@ -559,6 +639,7 @@ var Auth = {
     }, 380);
   },
   logout: function(){
+    if(this._cloud()){ try { Cloud._sb.auth.signOut(); } catch(e){} }
     DB.del('session');
     var app = document.getElementById('app'); if(app){ app.classList.remove('on'); app.setAttribute('aria-hidden','true'); }
     var loginEl = document.getElementById('login'); if(loginEl){ loginEl.style.display = ''; loginEl.style.opacity = '1'; }
@@ -566,6 +647,7 @@ var Auth = {
     Toast.show('Sessão encerrada.', 'inf');
   },
   _ensureSectors: function(){
+    if(this._cloud()) return; // contas demo só existem no modo local
     var SECTORS = [
       {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin'},
       {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao'},
@@ -585,8 +667,21 @@ var Auth = {
   },
   restore: function(){
     var s = DB.get('session', null);
-    if(!s || (Date.now() - s.at) > 8 * 3600 * 1000){ DB.del('session'); return; }
+    if(!s || (Date.now() - s.at) > 8 * 3600 * 1000){ DB.del('session'); if(this._cloud()) Cloud._sb.auth.signOut(); return; }
     if(s.fp && s.fp !== this._fp()){ DB.del('session'); return; }
+    var self = this;
+    if(this._cloud()){
+      // valida a sessão local contra a sessão real do Supabase Auth
+      Cloud._sb.auth.getSession().then(function(res){
+        var sess = res.data && res.data.session;
+        if(!sess || sess.user.id !== s.userId){ DB.del('session'); return; }
+        Cloud._sb.from('profiles').select('*').eq('id', sess.user.id).single().then(function(pr){
+          if(pr.error || !pr.data || pr.data.pending){ DB.del('session'); Cloud._sb.auth.signOut(); return; }
+          self.syncProfiles().then(function(){ self._start(self._profileToUser(pr.data, sess.user.email)); });
+        });
+      });
+      return;
+    }
     var u = DB.get('users', []).find(function(x){ return x.id === s.userId; });
     if(u && !u.pending) this._start(u);
   }
@@ -1271,25 +1366,60 @@ var Admin = {
   approve: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
-    if(!u) return; u.pending = false; DB.set('users', users);
-    AuditLog.log('Usuário aprovado', u.nome + ' (' + (ROLES[u.role]||u.role) + ')', 'paciente');
-    Toast.show(u.nome.split(' ')[0] + ' aprovado(a)!', 'ok'); this.render(); _updateLoginStats();
+    if(!u) return;
+    var self = this;
+    var done = function(){
+      u.pending = false; DB.set('users', users);
+      AuditLog.log('Usuário aprovado', u.nome + ' (' + (ROLES[u.role]||u.role) + ')', 'paciente');
+      Toast.show(u.nome.split(' ')[0] + ' aprovado(a)!', 'ok'); self.render(); _updateLoginStats();
+    };
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').update({pending: false}).eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao aprovar: ' + Auth._errMsg(res.error), 'err'); return; }
+        Auth.syncProfiles().then(function(){ done(); });
+      });
+      return;
+    }
+    done();
   },
   reject: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
     if(!confirm('Rejeitar e remover o cadastro de "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Cadastro rejeitado', u.nome, 'seguranca');
-    Toast.show('Cadastro rejeitado.', 'inf'); this.render();
+    var self = this;
+    var done = function(){
+      DB.set('users', DB.get('users', []).filter(function(x){ return x.id !== id; }));
+      if(u) AuditLog.log('Cadastro rejeitado', u.nome, 'seguranca');
+      Toast.show('Cadastro rejeitado.', 'inf'); self.render();
+    };
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').delete().eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao rejeitar: ' + Auth._errMsg(res.error), 'err'); return; }
+        done();
+      });
+      return;
+    }
+    done();
   },
   del: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
     if(!confirm('Remover o usuário "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Remoção de Usuário', u.nome, 'paciente');
-    Toast.show('Usuário removido.', 'inf'); this.render(); _updateLoginStats();
+    var self = this;
+    var done = function(){
+      DB.set('users', DB.get('users', []).filter(function(x){ return x.id !== id; }));
+      if(u) AuditLog.log('Remoção de Usuário', u.nome, 'seguranca');
+      Toast.show('Usuário removido.', 'inf'); self.render(); _updateLoginStats();
+    };
+    if(Auth._cloud()){
+      // remove o perfil: sem perfil o login é bloqueado mesmo que o auth.user exista
+      Cloud._sb.from('profiles').delete().eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao remover: ' + Auth._errMsg(res.error), 'err'); return; }
+        done();
+      });
+      return;
+    }
+    done();
   }
 };
 
@@ -1375,6 +1505,19 @@ var Perfil = {
     if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
     if(newpw.length < 8){ Toast.show('Senha nova deve ter pelo menos 8 caracteres.','err'); return; }
     var sess = DB.get('session',{}), users = DB.get('users',[]);
+    if(Auth._cloud()){
+      // reautentica com a senha atual antes de trocar
+      Cloud._sb.auth.signInWithPassword({email: sess.email, password: oldpw}).then(function(res){
+        if(res.error){ Toast.show('Senha atual incorreta.','err'); return; }
+        Cloud._sb.auth.updateUser({password: newpw}).then(function(up){
+          if(up.error){ Toast.show(Auth._errMsg(up.error),'err'); return; }
+          setVal('pf-oldpw',''); setVal('pf-newpw','');
+          AuditLog.log('Senha alterada', sess.nome, 'seguranca');
+          Toast.show('Senha alterada com sucesso!','ok');
+        });
+      });
+      return;
+    }
     var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
     Auth.verifyHash(oldpw, u.hash).then(function(ok){
       if(!ok){ Toast.show('Senha atual incorreta.','err'); return; }
@@ -1423,6 +1566,11 @@ var Perfil = {
     var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
     u.profil = {cpf: cpf, crp: crp, abord: abord, nome: getVal('pf-nome'), especialidades: getVal('pf-esp'), turnos: turnos, updatedAt: new Date().toISOString()};
     DB.set('users', users);
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').update({profil: u.profil, crp: crp}).eq('id', sess.userId).then(function(res){
+        if(res.error) Toast.show('Perfil salvo localmente, mas falhou na nuvem: ' + Auth._errMsg(res.error), 'warn');
+      });
+    }
     var warn = document.getElementById('dash-prof-warn'); if(warn) warn.style.display = 'none';
     AuditLog.log('Perfil atualizado', 'CRP: ' + crp, 'paciente');
     Toast.show('Perfil salvo com sucesso!', 'ok');
@@ -1983,6 +2131,10 @@ var PDF = {
 var Cloud = {
   _sb: null,
   _timer: {},
+  // credenciais públicas do projeto (a anon key é pública por design;
+  // a segurança vem das políticas RLS no banco — ver supabase/schema.sql)
+  _DEFAULT_URL: 'https://daokctlqggubgrikrubj.supabase.co',
+  _DEFAULT_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhb2tjdGxxZ2d1YmdyaWtydWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0OTIxMTMsImV4cCI6MjA5NzA2ODExM30.BXOUGICIT-cuFlqJUo4SzDBJEfdfywuw4-SXdHHV9sY',
   _SYNC: ['patients','sessions','appts','anamneses','finance','audit','notifs','vinculos','users','consentimentos','plans'],
   _SCHEMA: `-- PsiCESMAC · Schema Supabase
 -- Execute no SQL Editor do projeto
@@ -2085,8 +2237,8 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
     Toast.show('Desconectado da nuvem.', 'inf');
   },
   restore: function(){
-    var url = localStorage.getItem('psi_cloud_url') || 'https://daokctlqggubgrikrubj.supabase.co';
-    var key = localStorage.getItem('psi_cloud_key');
+    var url = localStorage.getItem('psi_cloud_url') || this._DEFAULT_URL;
+    var key = localStorage.getItem('psi_cloud_key') || this._DEFAULT_KEY;
     if(url && key && typeof supabase !== 'undefined'){
       try {
         this._sb = supabase.createClient(url, key);

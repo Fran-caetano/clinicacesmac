@@ -34,6 +34,18 @@ Data: 2026-07-13 · Escopo: `index.html`, `app.js`, `style.css`, integração Su
 - **Notificações privadas por usuário**: cada notificação carrega o `uid` do usuário e só aparece para ele (privacidade em computador compartilhado).
 - **Acessibilidade**: toasts com `role="alert"`/`role="status"`; labels associados (`for`/`id`) nos formulários de login, cadastro e recuperação.
 
+## 1c. Migração para Supabase Auth (2026-07-16)
+
+- **Autenticação servidor-side**: login, cadastro, troca e recuperação de senha agora usam **Supabase Auth** quando o projeto está acessível (URL + anon key embutidas; são públicas por design — a segurança vem da RLS).
+- **Perfis e papéis** na tabela `profiles`, criada automaticamente por trigger no cadastro; **o primeiro usuário do sistema vira admin aprovado (bootstrap)** e os demais aguardam aprovação.
+- **Aprovação/rejeição/remoção de usuários** pelo admin operam direto na tabela `profiles` (política RLS `is_admin()`); usuário sem perfil não consegue entrar.
+- **Recuperação de senha real por e-mail** (`resetPasswordForEmail`), substituindo o token simulado em toast.
+- **Contas demo bloqueadas no modo nuvem**; o modo local (localStorage) permanece como fallback offline/demonstração.
+- Sincronização `app_data` agora exige usuário **autenticado e aprovado** (RLS `is_active_user()`).
+- Validação: suíte E2E com mock fiel do supabase-js (bootstrap do 1º admin, pendência, aprovação, troca de senha, bloqueio do demo) + regressão do modo local — tudo verde.
+
+Pendências pós-deploy: executar `supabase/schema.sql` no SQL Editor; habilitar provider Email; testar no domínio real (este ambiente de desenvolvimento não alcança supabase.co).
+
 ## 2. Riscos residuais conhecidos (roadmap)
 
 Estes pontos exigem o backend (Supabase Auth + Edge Functions) e não podem ser resolvidos apenas no frontend:
