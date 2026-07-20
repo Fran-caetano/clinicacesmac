@@ -39,7 +39,7 @@ function setVal(id, v){ var el = document.getElementById(id); if(el) el.value = 
 function fErr(id, on){ var el = document.getElementById(id); if(el) el.classList.toggle('err', !!on); }
 function fClear(){ for(var i = 0; i < arguments.length; i++) fErr(arguments[i], false); }
 function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
-function isoToday(){ return new Date().toISOString().slice(0, 10); }
+function isoToday(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function fmtDate(d){ if(!d) return '—'; var p = d.split('-'); return p.length < 3 ? d : p[2]+'/'+p[1]+'/'+p[0]; }
 function fmtDT(iso){ if(!iso) return '—'; var d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
 function fmtAge(nasc){ if(!nasc) return null; var d = new Date(nasc), n = new Date(); var y = n.getFullYear() - d.getFullYear(); if(n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) y--; return y >= 0 ? y : null; }
@@ -211,7 +211,11 @@ var M = {
     el.classList.remove('on'); document.body.style.overflow = ''; M._dirty = false;
     if(M._trap){ document.removeEventListener('keydown', M._trap); M._trap = null; }
   },
-  closeAll: function(){ document.querySelectorAll('.mbg.on').forEach(function(m){ m.classList.remove('on'); }); document.body.style.overflow = ''; }
+  closeAll: function(){
+    document.querySelectorAll('.mbg.on').forEach(function(m){ m.classList.remove('on'); });
+    document.body.style.overflow = ''; M._dirty = false;
+    if(M._trap){ document.removeEventListener('keydown', M._trap); M._trap = null; }
+  }
 };
 document.addEventListener('click', function(e){ if(e.target && e.target.classList && e.target.classList.contains('mbg')) M.closeAll(); });
 
@@ -916,7 +920,7 @@ var Sess = {
       var idx = sessions.findIndex(function(x){ return x.id === Sess._editId; });
       if(idx >= 0){ for(var k in fields) sessions[idx][k] = fields[k]; }
       DB.set('sessions', sessions);
-      AuditLog.log('Edição de Evolução', '"' + (DB.get('patients',[]).find(function(x){return x.id===pac;})||{}).nome + '"', 'prontuario');
+      AuditLog.log('Edição de Evolução', '"' + ((DB.get('patients',[]).find(function(x){return x.id===pac;})||{}).nome||'—') + '"', 'prontuario');
       Toast.show('Evolução atualizada!', 'ok');
     } else {
       var s = Object.assign({id:uid(), autorId:sess.userId, createdAt:new Date().toISOString()}, fields);
@@ -1059,39 +1063,6 @@ var Appts = {
     if(a) a.status = st; DB.set('appts', appts);
     Agenda.render(); Badge.update(); Dashboard.render();
     Toast.show('Status: "' + st + '".', 'ok');
-  },
-  openNew: function(){
-    this._editId = null;
-    ['mp-n','mp-nasc','mp-tel','mp-email','mp-enc','mp-cpf','mp-queixa','mp-resp','mp-tel-resp','mp-obs'].forEach(function(id){ setVal(id,''); });
-    setVal('mp-sexo',''); setVal('mp-tipo','adulto'); setVal('mp-mod',''); setVal('mp-prio','media'); setVal('mp-enc','');
-    Pats._pendingFoto = null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    var fotoIn = document.getElementById('mp-foto'); if(fotoIn) fotoIn.value = '';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (t === 'atend' || t === 'dados');
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Cadastrar Paciente';
-    M.open('m-pat');
-  },
-  edit: function(id){
-    var p = DB.get('patients', []).find(function(x){ return x.id === id; }); if(!p) return;
-    this._editId = id;
-    setVal('mp-n', p.nome||''); setVal('mp-nasc', p.nasc||''); setVal('mp-sexo', p.sexo||'');
-    setVal('mp-tel', p.tel||''); setVal('mp-email', p.email||''); setVal('mp-tipo', p.tipo||'adulto');
-    setVal('mp-mod', p.mod||''); setVal('mp-prio', p.prio||'media'); setVal('mp-enc', p.enc||'');
-    setVal('mp-cpf', p.cpf||''); setVal('mp-queixa', p.queixa||'');
-    setVal('mp-resp', p.resp||''); setVal('mp-tel-resp', p.telResp||''); setVal('mp-obs', p.obs||'');
-    Pats._pendingFoto = p.foto || null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = p.foto ? '<img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (p.consentimentos||[]).some(function(c){ return c.tipo === t && c.aceito; });
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Editar Paciente';
-    M.open('m-pat');
   },
   openNew: function(){
     this._editId = null;
@@ -1299,7 +1270,7 @@ var Sup = {
       return '<tr>'
         + '<td>' + esc(est?est.nome:'—') + '</td>'
         + '<td>' + esc(pac?pac.nome:'—') + '</td>'
-        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate(v.createdAt) + '</td>'
+        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate((v.createdAt||'').slice(0,10)) + '</td>'
         + '<td><span class="bdg '+(v.ativo?'bg':'bn')+'">'+(v.ativo?'Ativo':'Revogado')+'</span></td>'
         + '<td><div class="acts">'
         + (v.ativo ? '<button class="btn btn-d btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.revogar(this.getAttribute(\'data-vid\'))">Revogar</button>' : '<button class="btn btn-ok btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.reativar(this.getAttribute(\'data-vid\'))">Reativar</button>')
@@ -1716,8 +1687,10 @@ var Ana = {
   save: function(){
     var t = TMPL_DATA.find(function(x){ return x.key === this._key; }, this); if(!t) return;
     var pac = getVal('ana-pac');
+    if(!pac && !confirm('Nenhum paciente selecionado.\nA anamnese não aparecerá em nenhum prontuário.\nSalvar mesmo assim?')) return;
     var list = DB.get('anamneses', []);
-    list.push({id:uid(), pacienteId:pac, type:this._key, label:t.label, content:this._toText(), raw:this._collect(), at:new Date().toISOString()});
+    var sess = DB.get('session', {});
+    list.push({id:uid(), pacienteId:pac, type:this._key, label:t.label, content:this._toText(), raw:this._collect(), autorId:sess.userId||'', at:new Date().toISOString()});
     DB.set('anamneses', list);
     M.close('m-ana');
     var p = pac ? DB.get('patients',[]).find(function(x){ return x.id===pac; }) : null;
@@ -2188,6 +2161,7 @@ var HealthCheck = {
     var issues=[],pats=DB.get('patients',[]),sess=DB.get('sessions',[]),appts=DB.get('appts',[]),pids=pats.map(function(p){return p.id;});
     sess.forEach(function(s){if(s.pacienteId&&pids.indexOf(s.pacienteId)<0)issues.push({lv:'warn',m:'Sessao '+s.id.slice(0,8)+' referencia paciente removido'});});
     appts.forEach(function(a){if(a.pacienteId&&pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Agendamento '+a.id.slice(0,8)+' referencia paciente removido'});});
+    DB.get('anamneses',[]).forEach(function(a){if(!a.pacienteId)issues.push({lv:'warn',m:'Anamnese '+(a.label||a.type||'')+' ('+a.id.slice(0,8)+') sem paciente vinculado'});else if(pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Anamnese '+a.id.slice(0,8)+' referencia paciente removido'});});
     var ids={};['patients','sessions','appts','finance'].forEach(function(k){DB.get(k,[]).forEach(function(i){if(ids[i.id])issues.push({lv:'err',m:'ID duplicado: '+i.id.slice(0,8)+' em '+k});ids[i.id]=true;});});
     pats.forEach(function(p){if(!p.nome||!p.id)issues.push({lv:'err',m:'Paciente sem nome ou ID'});});
     var el=document.getElementById('health-result');if(!el)return issues;
