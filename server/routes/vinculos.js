@@ -11,6 +11,15 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
+// lista enxuta de estagiarios (id, nome, email) para o seletor de vinculo -
+// nao expoe o cadastro completo de usuarios, que fica restrito ao admin
+router.get('/estagiarios', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, nome, email FROM users WHERE role = 'estagiario' AND pending = false ORDER BY nome`
+  );
+  res.json(rows);
+});
+
 router.post('/', async (req, res) => {
   const { estId, pacId } = req.body;
   if (!estId || !pacId) return res.status(400).json({ erro: 'Selecione estagiário e paciente.' });

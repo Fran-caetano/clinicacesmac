@@ -4,14 +4,15 @@ const { logAudit } = require('../db/audit');
 const { exigirPagina } = require('../middleware/auth');
 
 const router = express.Router();
-router.use(exigirPagina('agenda'));
 
+// leitura aberta - o dashboard de todos os papeis mostra os proximos
+// atendimentos e o card de lembretes. Escrita fica restrita a agenda.
 router.get('/', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM appointments ORDER BY data, hora');
   res.json(rows);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', exigirPagina('agenda'), async (req, res) => {
   const b = req.body;
   if (!b.pacienteId || !b.data || !b.hora) {
     return res.status(400).json({ erro: 'Paciente, data e horário são obrigatórios.' });
@@ -33,7 +34,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', exigirPagina('agenda'), async (req, res) => {
   const b = req.body;
   if (b.data && b.hora) {
     const conflito = await pool.query(
@@ -57,7 +58,7 @@ router.patch('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', exigirPagina('agenda'), async (req, res) => {
   const { rowCount } = await pool.query('DELETE FROM appointments WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
   await logAudit(req.session.user.id, 'Remoção de agendamento', req.params.id, 'paciente');

@@ -3,20 +3,35 @@ const pool = require('../db/pool');
 const { logAudit } = require('../db/audit');
 const { exigirPagina } = require('../middleware/auth');
 const { TIPOS_ANAMNESE } = require('../constants/permissions');
-const { podeAcessarPaciente } = require('../db/visibility');
+const { podeAcessarPaciente, idsPacientesVisiveis } = require('../db/visibility');
 
 const router = express.Router();
 router.use(exigirPagina('anamnese'));
 
 router.get('/', async (req, res) => {
   const { pacienteId } = req.query;
-  if (!pacienteId) return res.status(400).json({ erro: 'Informe pacienteId.' });
-  if (!(await podeAcessarPaciente(req.session.user, pacienteId))) {
-    return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
+
+  if (pacienteId) {
+    if (!(await podeAcessarPaciente(req.session.user, pacienteId))) {
+      return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
+    }
+    const { rows } = await pool.query(
+      'SELECT * FROM anamneses WHERE paciente_id = $1 ORDER BY created_at DESC',
+      [pacienteId]
+    );
+    return res.json(rows);
+  }
+
+  const ids = await idsPacientesVisiveis(req.session.user);
+  const params = [];
+  let where = '';
+  if (ids !== null) {
+    params.push(ids);
+    where = 'WHERE paciente_id = ANY($1)';
   }
   const { rows } = await pool.query(
-    'SELECT * FROM anamneses WHERE paciente_id = $1 ORDER BY created_at DESC',
-    [pacienteId]
+    `SELECT * FROM anamneses ${where} ORDER BY created_at DESC`,
+    params
   );
   res.json(rows);
 });

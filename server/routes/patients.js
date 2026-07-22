@@ -6,8 +6,12 @@ const { PODE_DELETAR_PACIENTE } = require('../constants/permissions');
 const { idsPacientesVisiveis, podeAcessarPaciente } = require('../db/visibility');
 
 const router = express.Router();
-router.use(exigirPagina('pacientes'));
 
+// leitura fica aberta a qualquer usuario logado - quem controla o que
+// aparece e' a visibilidade por paciente (idsPacientesVisiveis), nao a
+// pagina. Estagiario e professor nao tem a pagina "Pacientes" mas
+// precisam listar pacientes visiveis para os seletores de prontuario,
+// anamnese e agenda - igual ao comportamento original do sistema.
 router.get('/', async (req, res) => {
   const ids = await idsPacientesVisiveis(req.session.user);
   const params = [];
@@ -23,7 +27,7 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', exigirPagina('pacientes'), async (req, res) => {
   const b = req.body;
   if (!b.nome || !b.nasc) {
     return res.status(400).json({ erro: 'Nome e data de nascimento são obrigatórios.' });
@@ -41,7 +45,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', exigirPagina('pacientes'), async (req, res) => {
   if (!(await podeAcessarPaciente(req.session.user, req.params.id))) {
     return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
   }
@@ -72,7 +76,7 @@ router.patch('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', exigirPagina('pacientes'), async (req, res) => {
   if (!PODE_DELETAR_PACIENTE.includes(req.session.user.role)) {
     return res.status(403).json({ erro: 'Seu perfil não pode remover pacientes.' });
   }
@@ -84,7 +88,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // LGPD - anonimizacao (mantem sessoes/anamneses para estatistica, remove dado pessoal)
-router.post('/:id/anonimizar', async (req, res) => {
+router.post('/:id/anonimizar', exigirPagina('pacientes'), async (req, res) => {
   if (!PODE_DELETAR_PACIENTE.includes(req.session.user.role)) {
     return res.status(403).json({ erro: 'Seu perfil não pode anonimizar pacientes.' });
   }

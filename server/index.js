@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 
 const authRoutes = require('./routes/auth');
+const statsRoutes = require('./routes/stats');
 const patientsRoutes = require('./routes/patients');
 const sessionsRoutes = require('./routes/sessions');
 const apptsRoutes = require('./routes/appts');
@@ -32,6 +33,7 @@ app.use(session({
 }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/stats', statsRoutes);
 app.use('/api/patients', exigirLogin, patientsRoutes);
 app.use('/api/sessions', exigirLogin, sessionsRoutes);
 app.use('/api/appts', exigirLogin, apptsRoutes);
