@@ -7,7 +7,11 @@ const router = express.Router();
 
 // leitura do log e' restrita ao admin
 router.get('/', exigirPagina('auditoria'), async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM audit_log ORDER BY at DESC LIMIT 500');
+  const { rows } = await pool.query(
+    `SELECT id, user_id AS "userId", user_nome AS "user", action, detail,
+      tipo AS "type", at
+     FROM audit_log ORDER BY at DESC LIMIT 500`
+  );
   res.json(rows);
 });
 

@@ -8,7 +8,8 @@ router.use(exigirPagina('admin'));
 
 router.get('/users', async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT id, nome, email, role, pending, created_at FROM users ORDER BY created_at DESC'
+    `SELECT id, nome, email, role, pending, created_at AS "createdAt"
+     FROM users ORDER BY created_at DESC`
   );
   res.json(rows);
 });

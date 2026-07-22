@@ -6,8 +6,11 @@ const { exigirPagina } = require('../middleware/auth');
 const router = express.Router();
 router.use(exigirPagina('supervisao'));
 
+const COLS = `id, est_id AS "estId", pac_id AS "pacId", prof_id AS "profId", ativo,
+  created_at AS "createdAt"`;
+
 router.get('/', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM vinculos ORDER BY created_at DESC');
+  const { rows } = await pool.query(`SELECT ${COLS} FROM vinculos ORDER BY created_at DESC`);
   res.json(rows);
 });
 
@@ -29,7 +32,7 @@ router.post('/', async (req, res) => {
   );
   if (existente.rows.length) return res.status(409).json({ erro: 'Vínculo já ativo.' });
   const { rows } = await pool.query(
-    'INSERT INTO vinculos (est_id, pac_id, prof_id, ativo) VALUES ($1,$2,$3,true) RETURNING *',
+    `INSERT INTO vinculos (est_id, pac_id, prof_id, ativo) VALUES ($1,$2,$3,true) RETURNING ${COLS}`,
     [estId, pacId, req.session.user.id]
   );
   await logAudit(req.session.user.id, 'Vínculo criado', rows[0].id, 'paciente');
@@ -39,7 +42,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const { ativo } = req.body;
   const { rows } = await pool.query(
-    'UPDATE vinculos SET ativo = $1 WHERE id = $2 RETURNING *',
+    `UPDATE vinculos SET ativo = $1 WHERE id = $2 RETURNING ${COLS}`,
     [!!ativo, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ erro: 'Vínculo não encontrado.' });

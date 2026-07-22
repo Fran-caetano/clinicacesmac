@@ -5,10 +5,13 @@ const { exigirPagina } = require('../middleware/auth');
 
 const router = express.Router();
 
+const COLS = `id, paciente_id AS "pacienteId", data, hora, sala, prof, obs, status, rec,
+  created_at AS "createdAt"`;
+
 // leitura aberta - o dashboard de todos os papeis mostra os proximos
 // atendimentos e o card de lembretes. Escrita fica restrita a agenda.
 router.get('/', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM appointments ORDER BY data, hora');
+  const { rows } = await pool.query(`SELECT ${COLS} FROM appointments ORDER BY data, hora`);
   res.json(rows);
 });
 
@@ -26,7 +29,7 @@ router.post('/', exigirPagina('agenda'), async (req, res) => {
   }
   const { rows } = await pool.query(
     `INSERT INTO appointments (paciente_id, data, hora, sala, prof, obs, status, rec)
-     VALUES ($1,$2,$3,$4,$5,$6,'agendado',$7) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,'agendado',$7) RETURNING ${COLS}`,
     [b.pacienteId, b.data, b.hora, b.sala || '', b.prof || '', b.obs || '', b.rec || '']
   );
   const pac = await pool.query('SELECT nome FROM patients WHERE id = $1', [b.pacienteId]);
@@ -50,7 +53,7 @@ router.patch('/:id', exigirPagina('agenda'), async (req, res) => {
       paciente_id = COALESCE($1, paciente_id), data = COALESCE($2, data), hora = COALESCE($3, hora),
       sala = COALESCE($4, sala), prof = COALESCE($5, prof), obs = COALESCE($6, obs),
       status = COALESCE($7, status)
-     WHERE id = $8 RETURNING *`,
+     WHERE id = $8 RETURNING ${COLS}`,
     [b.pacienteId, b.data, b.hora, b.sala, b.prof, b.obs, b.status, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ erro: 'Agendamento não encontrado.' });

@@ -8,6 +8,9 @@ const { podeAcessarPaciente, idsPacientesVisiveis } = require('../db/visibility'
 const router = express.Router();
 router.use(exigirPagina('anamnese'));
 
+const COLS = `id, paciente_id AS "pacienteId", tipo, label, raw, content,
+  autor_id AS "autorId", created_at AS "createdAt"`;
+
 router.get('/', async (req, res) => {
   const { pacienteId } = req.query;
 
@@ -16,7 +19,7 @@ router.get('/', async (req, res) => {
       return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
     }
     const { rows } = await pool.query(
-      'SELECT * FROM anamneses WHERE paciente_id = $1 ORDER BY created_at DESC',
+      `SELECT ${COLS} FROM anamneses WHERE paciente_id = $1 ORDER BY created_at DESC`,
       [pacienteId]
     );
     return res.json(rows);
@@ -30,7 +33,7 @@ router.get('/', async (req, res) => {
     where = 'WHERE paciente_id = ANY($1)';
   }
   const { rows } = await pool.query(
-    `SELECT * FROM anamneses ${where} ORDER BY created_at DESC`,
+    `SELECT ${COLS} FROM anamneses ${where} ORDER BY created_at DESC`,
     params
   );
   res.json(rows);
@@ -47,7 +50,7 @@ router.post('/', async (req, res) => {
   }
   const { rows } = await pool.query(
     `INSERT INTO anamneses (paciente_id, tipo, label, raw, content, autor_id)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING ${COLS}`,
     [b.pacienteId || null, b.tipo, b.label || '', JSON.stringify(b.raw || {}), b.content || '', req.session.user.id]
   );
   let detalhe = `"${b.label || b.tipo}"`;

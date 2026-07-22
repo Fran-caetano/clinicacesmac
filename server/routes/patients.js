@@ -7,6 +7,13 @@ const { idsPacientesVisiveis, podeAcessarPaciente } = require('../db/visibility'
 
 const router = express.Router();
 
+// colunas com alias camelCase - o frontend fala camelCase (pacienteId,
+// telResp, createdAt...), o banco fala snake_case; o alias resolve isso
+// numa unica lista reaproveitada em toda leitura/escrita desta rota
+const COLS = `id, nome, nasc, sexo, cpf, tel, email, tipo, mod, prio, enc, queixa, resp,
+  tel_resp AS "telResp", obs, foto, status, consentimentos, prof_id AS "profId",
+  created_at AS "createdAt"`;
+
 // leitura fica aberta a qualquer usuario logado - quem controla o que
 // aparece e' a visibilidade por paciente (idsPacientesVisiveis), nao a
 // pagina. Estagiario e professor nao tem a pagina "Pacientes" mas
@@ -21,7 +28,7 @@ router.get('/', async (req, res) => {
     where = 'WHERE id = ANY($1)';
   }
   const { rows } = await pool.query(
-    `SELECT * FROM patients ${where} ORDER BY created_at DESC`,
+    `SELECT ${COLS} FROM patients ${where} ORDER BY created_at DESC`,
     params
   );
   res.json(rows);
@@ -36,10 +43,16 @@ router.post('/', exigirPagina('pacientes'), async (req, res) => {
     `INSERT INTO patients
       (nome, nasc, sexo, cpf, tel, email, tipo, mod, prio, enc, queixa, resp, tel_resp, obs, foto, consentimentos, prof_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-     RETURNING *`,
+     RETURNING ${COLS}`,
+    // prof_id so e' preenchido quando quem cadastra e' psicologo (auto-atribuicao).
+    // Se ficasse sempre com o id de quem cadastrou, um paciente criado pela
+    // recepcao nunca apareceria pra nenhum psicologo (a regra de visibilidade
+    // do psicologo e' "sem profissional OU profissional = eu mesmo") - travaria
+    // o fluxo real da clinica (recepcao triagem -> psicologo atende).
     [b.nome, b.nasc, b.sexo || '', b.cpf || '', b.tel || '', b.email || '', b.tipo || 'adulto',
      b.mod || '', b.prio || 'media', b.enc || '', b.queixa || '', b.resp || '', b.telResp || '',
-     b.obs || '', b.foto || null, JSON.stringify(b.consentimentos || []), req.session.user.id]
+     b.obs || '', b.foto || null, JSON.stringify(b.consentimentos || []),
+     req.session.user.role === 'psicologo' ? req.session.user.id : null]
   );
   await logAudit(req.session.user.id, 'Cadastro de Paciente', `"${b.nome}"`, 'paciente');
   res.status(201).json(rows[0]);
@@ -68,7 +81,7 @@ router.patch('/:id', exigirPagina('pacientes'), async (req, res) => {
   if (!sets.length) return res.status(400).json({ erro: 'Nenhum campo para atualizar.' });
   vals.push(req.params.id);
   const { rows } = await pool.query(
-    `UPDATE patients SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`,
+    `UPDATE patients SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING ${COLS}`,
     vals
   );
   if (!rows[0]) return res.status(404).json({ erro: 'Paciente não encontrado.' });
@@ -100,7 +113,7 @@ router.post('/:id/anonimizar', exigirPagina('pacientes'), async (req, res) => {
       nome = '[ANONIMIZADO]', tel = '', email = '', cpf = '', nasc = NULL,
       resp = '', tel_resp = '', obs = '', queixa = '[LGPD]', enc = '',
       foto = NULL, consentimentos = '[]', status = 'finalizado'
-     WHERE id = $1 RETURNING *`,
+     WHERE id = $1 RETURNING ${COLS}`,
     [req.params.id]
   );
   await logAudit(req.session.user.id, 'LGPD', `"${nomeAntigo}" anonimizado`, 'paciente');
