@@ -17,4 +17,17 @@ function exigirPapel(...papeis) {
   };
 }
 
-module.exports = { exigirLogin, exigirPapel };
+function exigirPagina(pagina) {
+  const { temAcessoPagina } = require('../constants/permissions');
+  return (req, res, next) => {
+    if (!req.session.user) {
+      return res.status(401).json({ erro: 'Faça login para continuar.' });
+    }
+    if (!temAcessoPagina(req.session.user.role, pagina)) {
+      return res.status(403).json({ erro: 'Acesso não autorizado para o seu perfil.' });
+    }
+    next();
+  };
+}
+
+module.exports = { exigirLogin, exigirPapel, exigirPagina };
