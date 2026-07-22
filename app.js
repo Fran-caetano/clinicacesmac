@@ -554,14 +554,6 @@ var UI = {
     var ov = document.getElementById('sbo'); if(ov) ov.classList.remove('on');
     var tbm = document.getElementById('tbmenu'); if(tbm) tbm.setAttribute('aria-expanded','false');
   },
-  theme: function(){
-    var html = document.documentElement;
-    var dark = html.getAttribute('data-theme') === 'dark';
-    html.setAttribute('data-theme', dark ? 'light' : 'dark');
-    DB.set('theme', dark ? 'light' : 'dark');
-    var ico = document.getElementById('thico');
-    if(ico) ico.innerHTML = dark ? '<path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>' : '<path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1z"/>';
-  },
   toggleNotif: function(){ var np = document.getElementById('npanel'); if(np) np.classList.toggle('on'); }
 };
 
@@ -2249,9 +2241,6 @@ document.addEventListener('keydown', function(e){
   if((e.ctrlKey || e.metaKey) && e.key === 'k'){ e.preventDefault(); var gs = document.getElementById('gsearch'); if(gs) gs.focus(); }
   if(e.key === 'Escape') M.closeAll();
 });
-
-// restaurar tema
-(function(){ var t = DB.get('theme','light'); document.documentElement.setAttribute('data-theme', t); })();
 
 // inicialização
 window.onerror = function(msg, src, line){ console.warn('Erro:', msg, 'L'+line); return true; };
