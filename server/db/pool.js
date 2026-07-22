@@ -7,6 +7,12 @@ const { Pool, types } = require('pg');
 // exatamente como o Postgres guarda ('YYYY-MM-DD').
 types.setTypeParser(1082, (val) => val);
 
+// mesmo problema com NUMERIC (usado em finance.val): o driver devolve
+// string por padrao pra nao perder precisao, mas o frontend soma esses
+// valores com "+" - precisa vir como number, senao vira concatenacao
+// de texto (0 + "10.50" = "010.50")
+types.setTypeParser(1700, (val) => parseFloat(val));
+
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL nao configurada - copie .env.example para .env e preencha');
 }
