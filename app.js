@@ -2,7 +2,7 @@
 
 // modelo de dados e permissões
 var PERMISSIONS = {
-  admin:     {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','financeiro','auditoria','admin','supervisao','perfil'],canDeletePat:true,canDeleteUser:true,canViewAllPats:true,canApprove:true},
+  admin:     {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','financeiro','auditoria','admin','supervisao','perfil','config'],canDeletePat:true,canDeleteUser:true,canViewAllPats:true,canApprove:true},
   recepcao:  {pages:['dashboard','agenda','pacientes','anamnese'],canDeletePat:false,canDeleteUser:false,canViewAllPats:true},
   estagiario:{pages:['dashboard','prontuarios','anamnese'],canDeletePat:false,canDeleteUser:false,canViewAllPats:false},
   professor: {pages:['dashboard','prontuarios','anamnese','supervisao'],canDeletePat:false,canDeleteUser:false,canViewAllPats:true},
@@ -39,7 +39,7 @@ function setVal(id, v){ var el = document.getElementById(id); if(el) el.value = 
 function fErr(id, on){ var el = document.getElementById(id); if(el) el.classList.toggle('err', !!on); }
 function fClear(){ for(var i = 0; i < arguments.length; i++) fErr(arguments[i], false); }
 function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
-function isoToday(){ return new Date().toISOString().slice(0, 10); }
+function isoToday(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function fmtDate(d){ if(!d) return '—'; var p = d.split('-'); return p.length < 3 ? d : p[2]+'/'+p[1]+'/'+p[0]; }
 function fmtDT(iso){ if(!iso) return '—'; var d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
 function fmtAge(nasc){ if(!nasc) return null; var d = new Date(nasc), n = new Date(); var y = n.getFullYear() - d.getFullYear(); if(n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) y--; return y >= 0 ? y : null; }
@@ -211,7 +211,11 @@ var M = {
     el.classList.remove('on'); document.body.style.overflow = ''; M._dirty = false;
     if(M._trap){ document.removeEventListener('keydown', M._trap); M._trap = null; }
   },
-  closeAll: function(){ document.querySelectorAll('.mbg.on').forEach(function(m){ m.classList.remove('on'); }); document.body.style.overflow = ''; }
+  closeAll: function(){
+    document.querySelectorAll('.mbg.on').forEach(function(m){ m.classList.remove('on'); });
+    document.body.style.overflow = ''; M._dirty = false;
+    if(M._trap){ document.removeEventListener('keydown', M._trap); M._trap = null; }
+  }
 };
 document.addEventListener('click', function(e){ if(e.target && e.target.classList && e.target.classList.contains('mbg')) M.closeAll(); });
 
@@ -417,6 +421,7 @@ var Auth = {
       {id:'supervisao', label:'Supervisão',       ico:'<path d="M12 3L1 9l11 6 9-4.91V17h2V9M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z"/>'},
       {id:'auditoria',  label:'Auditoria',        ico:'<path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>',             badge:'bdg-au'},
       {id:'admin',      label:'Administração',    ico:'<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>'},
+      {id:'config',     label:'Configurações',    ico:'<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>'},
       {sec: 'Meu Perfil'},
       {id:'perfil',     label:'Perfil Profissional', ico:'<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>'}
     ];
@@ -518,7 +523,7 @@ var Auth = {
 };
 
 // interface e navegação
-var PAGE_TITLES = {dashboard:'Dashboard', agenda:'Agenda', pacientes:'Pacientes', prontuarios:'Prontuários', anamnese:'Anamneses', financeiro:'Financeiro', auditoria:'Auditoria', admin:'Administração', supervisao:'Supervisão', perfil:'Perfil Profissional'};
+var PAGE_TITLES = {dashboard:'Dashboard', agenda:'Agenda', pacientes:'Pacientes', prontuarios:'Prontuários', anamnese:'Anamneses', financeiro:'Financeiro', auditoria:'Auditoria', admin:'Administração', supervisao:'Supervisão', perfil:'Perfil Profissional', config:'Configurações'};
 
 var UI = {
   nav: function(pg, btn){
@@ -535,7 +540,7 @@ var UI = {
     var navBtn = btn || document.querySelector('.sbl-i[data-page="' + pg + '"]');
     if(navBtn){ navBtn.classList.add('on'); navBtn.setAttribute('aria-current','page'); }
     var tbt = document.getElementById('tbtitle'); if(tbt) tbt.textContent = PAGE_TITLES[pg] || pg;
-    var inits = {dashboard: function(){ Dashboard.render(); Lembrete.render(); }, agenda: function(){ Agenda.render(); }, pacientes: function(){ Pats.render(); }, prontuarios: function(){ Rec.init(); }, anamnese: function(){ Ana.renderTmpls(); }, financeiro: function(){ Fin.render(); }, auditoria: function(){ AuditLog.render(); }, admin: function(){ Admin.render(); StorageMon.render(); }, supervisao: function(){ Sup.render(); Sup._renderCalendario(); }, perfil: function(){ Perfil.render(); }};
+    var inits = {dashboard: function(){ Dashboard.render(); Lembrete.render(); }, agenda: function(){ Agenda.render(); }, pacientes: function(){ Pats.render(); }, prontuarios: function(){ Rec.init(); }, anamnese: function(){ Ana.renderTmpls(); }, financeiro: function(){ Fin.render(); }, auditoria: function(){ AuditLog.render(); }, admin: function(){ Admin.render(); StorageMon.render(); }, supervisao: function(){ Sup.render(); Sup._renderCalendario(); }, perfil: function(){ Perfil.render(); }, config: function(){ Cloud._updateBadge(!!Cloud._sb); }};
     if(inits[pg]) inits[pg]();
     this.closeSb();
   },
@@ -916,7 +921,7 @@ var Sess = {
       var idx = sessions.findIndex(function(x){ return x.id === Sess._editId; });
       if(idx >= 0){ for(var k in fields) sessions[idx][k] = fields[k]; }
       DB.set('sessions', sessions);
-      AuditLog.log('Edição de Evolução', '"' + (DB.get('patients',[]).find(function(x){return x.id===pac;})||{}).nome + '"', 'prontuario');
+      AuditLog.log('Edição de Evolução', '"' + ((DB.get('patients',[]).find(function(x){return x.id===pac;})||{}).nome||'—') + '"', 'prontuario');
       Toast.show('Evolução atualizada!', 'ok');
     } else {
       var s = Object.assign({id:uid(), autorId:sess.userId, createdAt:new Date().toISOString()}, fields);
@@ -1059,39 +1064,6 @@ var Appts = {
     if(a) a.status = st; DB.set('appts', appts);
     Agenda.render(); Badge.update(); Dashboard.render();
     Toast.show('Status: "' + st + '".', 'ok');
-  },
-  openNew: function(){
-    this._editId = null;
-    ['mp-n','mp-nasc','mp-tel','mp-email','mp-enc','mp-cpf','mp-queixa','mp-resp','mp-tel-resp','mp-obs'].forEach(function(id){ setVal(id,''); });
-    setVal('mp-sexo',''); setVal('mp-tipo','adulto'); setVal('mp-mod',''); setVal('mp-prio','media'); setVal('mp-enc','');
-    Pats._pendingFoto = null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    var fotoIn = document.getElementById('mp-foto'); if(fotoIn) fotoIn.value = '';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (t === 'atend' || t === 'dados');
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Cadastrar Paciente';
-    M.open('m-pat');
-  },
-  edit: function(id){
-    var p = DB.get('patients', []).find(function(x){ return x.id === id; }); if(!p) return;
-    this._editId = id;
-    setVal('mp-n', p.nome||''); setVal('mp-nasc', p.nasc||''); setVal('mp-sexo', p.sexo||'');
-    setVal('mp-tel', p.tel||''); setVal('mp-email', p.email||''); setVal('mp-tipo', p.tipo||'adulto');
-    setVal('mp-mod', p.mod||''); setVal('mp-prio', p.prio||'media'); setVal('mp-enc', p.enc||'');
-    setVal('mp-cpf', p.cpf||''); setVal('mp-queixa', p.queixa||'');
-    setVal('mp-resp', p.resp||''); setVal('mp-tel-resp', p.telResp||''); setVal('mp-obs', p.obs||'');
-    Pats._pendingFoto = p.foto || null;
-    var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = p.foto ? '<img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
-    ['atend','dados','grav','pesq'].forEach(function(t){
-      var cb = document.getElementById('mp-lgpd-'+t);
-      if(cb) cb.checked = (p.consentimentos||[]).some(function(c){ return c.tipo === t && c.aceito; });
-    });
-    var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Editar Paciente';
-    M.open('m-pat');
   },
   openNew: function(){
     this._editId = null;
@@ -1299,7 +1271,7 @@ var Sup = {
       return '<tr>'
         + '<td>' + esc(est?est.nome:'—') + '</td>'
         + '<td>' + esc(pac?pac.nome:'—') + '</td>'
-        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate(v.createdAt) + '</td>'
+        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate((v.createdAt||'').slice(0,10)) + '</td>'
         + '<td><span class="bdg '+(v.ativo?'bg':'bn')+'">'+(v.ativo?'Ativo':'Revogado')+'</span></td>'
         + '<td><div class="acts">'
         + (v.ativo ? '<button class="btn btn-d btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.revogar(this.getAttribute(\'data-vid\'))">Revogar</button>' : '<button class="btn btn-ok btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.reativar(this.getAttribute(\'data-vid\'))">Reativar</button>')
@@ -1716,8 +1688,10 @@ var Ana = {
   save: function(){
     var t = TMPL_DATA.find(function(x){ return x.key === this._key; }, this); if(!t) return;
     var pac = getVal('ana-pac');
+    if(!pac && !confirm('Nenhum paciente selecionado.\nA anamnese não aparecerá em nenhum prontuário.\nSalvar mesmo assim?')) return;
     var list = DB.get('anamneses', []);
-    list.push({id:uid(), pacienteId:pac, type:this._key, label:t.label, content:this._toText(), raw:this._collect(), at:new Date().toISOString()});
+    var sess = DB.get('session', {});
+    list.push({id:uid(), pacienteId:pac, type:this._key, label:t.label, content:this._toText(), raw:this._collect(), autorId:sess.userId||'', at:new Date().toISOString()});
     DB.set('anamneses', list);
     M.close('m-ana');
     var p = pac ? DB.get('patients',[]).find(function(x){ return x.id===pac; }) : null;
@@ -2014,6 +1988,7 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
 `,
 
   connect: function(){
+    if(!_adminOnly()) return;
     var url = (document.getElementById('sb-url')||{}).value||'';
     var key = (document.getElementById('sb-key')||{}).value||'';
     if(!url || !key){ Toast.show('Preencha URL e Anon Key.','err'); return; }
@@ -2029,6 +2004,7 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
     } catch(e){ Toast.show('Erro ao conectar: ' + e.message, 'err'); }
   },
   disconnect: function(){
+    if(!_adminOnly()) return;
     this._sb = null;
     localStorage.removeItem('psi_cloud_url');
     localStorage.removeItem('psi_cloud_key');
@@ -2079,6 +2055,7 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
     });
   },
   push: function(){
+    if(!_adminOnly()) return;
     if(!this._sb){ Toast.show('Conecte ao Supabase primeiro.','err'); return; }
     var self = this; var count = 0;
     this._SYNC.forEach(function(k){
@@ -2089,6 +2066,7 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
     Toast.show('Dados enviados para a nuvem!', 'ok');
   },
   pull: function(){
+    if(!_adminOnly()) return;
     if(!this._sb){ Toast.show('Conecte ao Supabase primeiro.','err'); return; }
     if(!confirm('Importar da nuvem substituirá os dados locais. Continuar?')) return;
     var self = this;
@@ -2115,10 +2093,20 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
   }
 };
 
+// somente admin — backup e nuvem
+function _adminOnly(){
+  var sess = DB.get('session', {});
+  if(sess.role === 'admin') return true;
+  AuditLog.log('Acesso bloqueado', 'Configurações (backup/nuvem)', 'seguranca');
+  Toast.show('Acesso restrito ao Administrador.', 'err');
+  return false;
+}
+
 // backup
 var Backup = {
   _KEYS: ['users','patients','sessions','appts','anamneses','finance','audit','notifs','vinculos','consentimentos','plans','theme','seeded7'],
   exportAll: function(){
+    if(!_adminOnly()) return;
     var data = {};
     this._KEYS.forEach(function(k){ var v = localStorage.getItem('psi_'+k); if(v) data[k] = JSON.parse(v); });
     var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -2130,6 +2118,7 @@ var Backup = {
     Toast.show('Backup exportado!', 'ok');
   },
   importAll: function(input){
+    if(!_adminOnly()){ input.value=''; return; }
     var file = input.files && input.files[0]; if(!file) return;
     if(!confirm('Importar substituirá TODOS os dados atuais. Deseja continuar?')){ input.value=''; return; }
     var reader = new FileReader();
@@ -2188,6 +2177,7 @@ var HealthCheck = {
     var issues=[],pats=DB.get('patients',[]),sess=DB.get('sessions',[]),appts=DB.get('appts',[]),pids=pats.map(function(p){return p.id;});
     sess.forEach(function(s){if(s.pacienteId&&pids.indexOf(s.pacienteId)<0)issues.push({lv:'warn',m:'Sessao '+s.id.slice(0,8)+' referencia paciente removido'});});
     appts.forEach(function(a){if(a.pacienteId&&pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Agendamento '+a.id.slice(0,8)+' referencia paciente removido'});});
+    DB.get('anamneses',[]).forEach(function(a){if(!a.pacienteId)issues.push({lv:'warn',m:'Anamnese '+(a.label||a.type||'')+' ('+a.id.slice(0,8)+') sem paciente vinculado'});else if(pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Anamnese '+a.id.slice(0,8)+' referencia paciente removido'});});
     var ids={};['patients','sessions','appts','finance'].forEach(function(k){DB.get(k,[]).forEach(function(i){if(ids[i.id])issues.push({lv:'err',m:'ID duplicado: '+i.id.slice(0,8)+' em '+k});ids[i.id]=true;});});
     pats.forEach(function(p){if(!p.nome||!p.id)issues.push({lv:'err',m:'Paciente sem nome ou ID'});});
     var el=document.getElementById('health-result');if(!el)return issues;
