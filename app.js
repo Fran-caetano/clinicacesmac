@@ -53,6 +53,13 @@ function avHtml(p, size, fs){
 }
 function avBg(n){ var h = ['#0066ff','#0a4d22','#b91c1c','#6d28d9','#0e7490','#b45309','#002299','#16a34a']; var s = 0; for(var i = 0; i < (n||'').length; i++) s += n.charCodeAt(i); return h[s % h.length]; }
 function empty(t, s){ return '<div class="es"><div class="esico"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg></div><h3>' + esc(t) + '</h3>' + (s ? '<p>' + esc(s) + '</p>' : '') + '</div>'; }
+// célula CSV segura: escapa aspas/; e neutraliza fórmulas (CSV injection)
+function csvCell(v){
+  var s = String(v == null ? '' : v);
+  if(/^[=+\-@]/.test(s)) s = "'" + s;
+  if(/[";\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
 function _download(name, txt, mime){ var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], {type: mime || 'text/plain'})); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
 function _visiblePats(pats, sess){
@@ -136,14 +143,20 @@ var Charts = {
 
 // notificações
 var Notif = {
+  // notificações são privadas por usuário (uid); registros antigos sem uid ficam ocultos
+  _mine: function(){
+    var sess = DB.get('session', {});
+    return DB.get('notifs', []).filter(function(n){ return n.uid === sess.userId; });
+  },
   add: function(msg, type){
+    var sess = DB.get('session', {});
     var list = DB.get('notifs', []);
-    list.unshift({id: uid(), msg: msg, type: type || 'inf', read: false, at: new Date().toISOString()});
-    DB.set('notifs', list.slice(0, 60));
+    list.unshift({id: uid(), uid: sess.userId || null, msg: msg, type: type || 'inf', read: false, at: new Date().toISOString()});
+    DB.set('notifs', list.slice(0, 120));
     this.render(); this.dot();
   },
   render: function(){
-    var list = DB.get('notifs', []);
+    var list = this._mine();
     var el = document.getElementById('nlist'); if(!el) return;
     if(!list.length){ el.innerHTML = '<div style="padding:18px;text-align:center;font-size:.78rem;color:var(--ink4)">Nenhuma notificação</div>'; return; }
     el.innerHTML = list.slice(0, 12).map(function(n){
@@ -160,11 +173,12 @@ var Notif = {
     DB.set('notifs', list); this.render(); this.dot();
   },
   readAll: function(){
-    DB.set('notifs', DB.get('notifs', []).map(function(n){ return Object.assign({}, n, {read: true}); }));
+    var sess = DB.get('session', {});
+    DB.set('notifs', DB.get('notifs', []).map(function(n){ return n.uid === sess.userId ? Object.assign({}, n, {read: true}) : n; }));
     this.render(); this.dot();
   },
   dot: function(){
-    var n = DB.get('notifs', []).filter(function(x){ return !x.read; }).length;
+    var n = this._mine().filter(function(x){ return !x.read; }).length;
     var d = document.getElementById('ndot'); if(d) d.style.display = n ? '' : 'none';
     var b = document.getElementById('bdg-au'); if(b) b.textContent = String(n);
   }
@@ -183,6 +197,7 @@ var Toast = {
     };
     var t = document.createElement('div');
     t.className = 'toast ' + cls;
+    t.setAttribute('role', type === 'err' ? 'alert' : 'status');
     t.innerHTML = '<svg viewBox="0 0 24 24">' + (icons[type] || icons.inf) + '</svg>' + esc(msg);
     th.appendChild(t);
     setTimeout(function(){ t.style.animation = 'tOut .25s forwards'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 260); }, dur || 3200);
@@ -265,7 +280,59 @@ var AuditLog = {
 // autenticação
 var Auth = {
   _sessionTimer: null,
+  // modo nuvem: Supabase Auth é a fonte de verdade; sem conexão, cai no modo local
+  _cloud: function(){ return !!(Cloud._sb); },
+  _errMsg: function(e){
+    var m = (e && e.message) || '';
+    if(/invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+    if(/already registered/i.test(m)) return 'E-mail já cadastrado.';
+    if(/rate limit/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
+    if(/email not confirmed/i.test(m)) return 'Confirme seu e-mail antes de entrar.';
+    if(/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor.';
+    return m || 'Erro inesperado.';
+  },
+  _profileToUser: function(p, email){
+    return {id: p.id, nome: p.nome, email: email || '', role: p.role, pending: p.pending, profil: p.profil || null, createdAt: p.created_at};
+  },
+  // espelha os perfis do Supabase no cache local usado pelas telas (Admin, Supervisão)
+  syncProfiles: function(){
+    if(!this._cloud()) return Promise.resolve();
+    return Cloud._sb.from('profiles').select('*').then(function(res){
+      if(res.error || !res.data) return;
+      DB.set('users', res.data.map(function(p){
+        return {id: p.id, nome: p.nome, email: p.email || '', role: p.role, pending: p.pending, profil: p.profil || null, createdAt: p.created_at};
+      }));
+    });
+  },
   _fp: function(){try{return btoa(navigator.userAgent.slice(0,40)+screen.width+screen.height+navigator.language).slice(0,24);}catch(e){return'';}},
+  _PBKDF2_ITER: 150000,
+  _canPBKDF2: function(){ try { return !!(window.crypto && window.crypto.subtle && window.TextEncoder && window.isSecureContext !== false); } catch(e){ return false; } },
+  _randSalt: function(){
+    var b = new Uint8Array(16);
+    (window.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach(function(_, i){ b[i] = Math.floor(Math.random() * 256); });
+    return Array.prototype.map.call(b, function(x){ return ('0' + x.toString(16)).slice(-2); }).join('');
+  },
+  _pbkdf2: function(pass, salt, iter){
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveBits'])
+      .then(function(key){ return crypto.subtle.deriveBits({name:'PBKDF2', hash:'SHA-256', salt: enc.encode(salt), iterations: iter}, key, 256); })
+      .then(function(bits){ return Array.prototype.map.call(new Uint8Array(bits), function(x){ return ('0' + x.toString(16)).slice(-2); }).join(''); });
+  },
+  // gera hash forte (PBKDF2-SHA256) quando o navegador suporta; senão usa o hash interno
+  makeHash: function(pass){
+    if(!this._canPBKDF2()) return Promise.resolve(this._hash(pass));
+    var salt = this._randSalt(), iter = this._PBKDF2_ITER, self = this;
+    return this._pbkdf2(pass, salt, iter).then(function(h){ return 'pbkdf2$' + iter + '$' + salt + '$' + h; });
+  },
+  verifyHash: function(pass, stored){
+    if(!stored) return Promise.resolve(false);
+    if(stored.indexOf('pbkdf2$') === 0){
+      if(!this._canPBKDF2()) return Promise.resolve(false);
+      var p = stored.split('$');
+      return this._pbkdf2(pass, p[2], parseInt(p[1], 10)).then(function(h){ return h === p[3]; }).catch(function(){ return false; });
+    }
+    return Promise.resolve(stored === this._hash(pass) || stored === this._hashLegacy(pass));
+  },
   _hashLegacy: function(s){ var h = 0x811c9dc5; for(var i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; } return h.toString(16); },
   _hash: function(s){
     s = 'psi$cesmac#' + s + '#2024';
@@ -299,6 +366,37 @@ var Auth = {
     if(btn) btn.disabled = true;
     if(txt) txt.innerHTML = '<svg style="width:13px;height:13px;fill:currentColor;animation:spin .7s linear infinite;display:inline-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 1 0 20A10 10 0 0 1 12 2zm0 2a8 8 0 0 0 0 16A8 8 0 0 0 12 4z" opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10h-2A8 8 0 0 0 12 4V2z"/></svg> Verificando…';
     var self = this;
+    var _fail = function(msg){
+      Toast.show(msg, 'err');
+      if(btn) btn.disabled = false;
+      if(txt) txt.textContent = 'Acessar sistema';
+      AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
+    };
+    // caminho nuvem: Supabase Auth é a autoridade
+    if(this._cloud()){
+      Cloud._sb.auth.signInWithPassword({email: email, password: pass}).then(function(res){
+        if(res.error){ _fail(self._errMsg(res.error)); return; }
+        var uid_ = res.data.user.id;
+        Cloud._sb.from('profiles').select('*').eq('id', uid_).single().then(function(pr){
+          if(pr.error || !pr.data){
+            Cloud._sb.auth.signOut();
+            _fail('Cadastro sem perfil ativo. Contate o administrador.');
+            return;
+          }
+          if(pr.data.pending){
+            Cloud._sb.auth.signOut();
+            Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
+            if(btn) btn.disabled = false;
+            if(txt) txt.textContent = 'Acessar sistema';
+            return;
+          }
+          var u = self._profileToUser(pr.data, email);
+          AuditLog.log('Login', 'Acesso: ' + email, 'login');
+          self.syncProfiles().then(function(){ self._start(u); });
+        });
+      }).catch(function(e){ _fail(self._errMsg(e)); });
+      return;
+    }
     setTimeout(function(){
       var users = DB.get('users', []);
       var rlKey='psi_rl',rl=JSON.parse(localStorage.getItem(rlKey)||'{"n":0,"t":0}');
@@ -308,25 +406,30 @@ var Auth = {
       }
       if(rl.n>=5)rl={n:0,t:0};
       var u = users.find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
-      if(!u || (u.hash !== self._hash(pass) && u.hash !== self._hashLegacy(pass))){
-        rl.n++;rl.t=Date.now();localStorage.setItem(rlKey,JSON.stringify(rl));
-        Toast.show('E-mail ou senha incorretos.'+(rl.n>=3?' ('+(5-rl.n)+' restante'+(5-rl.n!==1?'s':'')+')':""),'err');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
-        return;
-      }
-      if(u.pending){
-        Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        return;
-      }
-      if(u.hash === self._hashLegacy(pass) && u.hash !== self._hash(pass)){
-        u.hash = self._hash(pass); DB.set('users', users);
-      }
-      AuditLog.log('Login', 'Acesso: ' + u.email, 'login');
-      self._start(u);
+      (u ? self.verifyHash(pass, u.hash) : Promise.resolve(false)).then(function(ok){
+        if(!ok){
+          rl.n++;rl.t=Date.now();localStorage.setItem(rlKey,JSON.stringify(rl));
+          Toast.show('E-mail ou senha incorretos.'+(rl.n>=3?' ('+(5-rl.n)+' restante'+(5-rl.n!==1?'s':'')+')':""),'err');
+          if(btn) btn.disabled = false;
+          if(txt) txt.textContent = 'Acessar sistema';
+          AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
+          return;
+        }
+        if(u.pending){
+          Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
+          if(btn) btn.disabled = false;
+          if(txt) txt.textContent = 'Acessar sistema';
+          return;
+        }
+        // migra hashes fracos (FNV/custom) para PBKDF2 no primeiro login bem-sucedido
+        var upgrade = (u.hash.indexOf('pbkdf2$') !== 0 && Auth._canPBKDF2())
+          ? self.makeHash(pass).then(function(h){ u.hash = h; DB.set('users', users); })
+          : Promise.resolve();
+        upgrade.then(function(){
+          AuditLog.log('Login', 'Acesso: ' + u.email, 'login');
+          self._start(u);
+        });
+      });
     }, 600);
   },
   register: function(){
@@ -336,18 +439,36 @@ var Auth = {
     var nok = nome.length > 0, eok = validEmail(email), pok = pass.length >= 8;
     fErr('fg-rg-n', !nok); fErr('fg-rg-e', !eok); fErr('fg-rg-p', !pok);
     if(!nok || !eok || !pok){ Toast.show('Corrija os campos destacados.', 'err'); return; }
+    var self = this;
+    if(this._cloud()){
+      Cloud._sb.auth.signUp({email: email, password: pass, options: {data: {nome: nome, role: role}}}).then(function(res){
+        if(res.error){ Toast.show(self._errMsg(res.error), 'err'); return; }
+        Cloud._sb.auth.signOut(); // signUp pode iniciar sessão; login só após aprovação
+        AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
+        Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
+        setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
+        fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+      });
+      return;
+    }
     var users = DB.get('users', []);
     if(users.find(function(u){ return u.email.toLowerCase() === email.toLowerCase(); })){
       Toast.show('E-mail já cadastrado.', 'err'); fErr('fg-rg-e', true); return;
     }
-    var u = {id: uid(), nome: nome, email: email, hash: this._hash(pass), role: role, pending: true, createdAt: new Date().toISOString()};
-    users.push(u); DB.set('users', users);
-    AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
-    Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
-    setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
-    fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    this.makeHash(pass).then(function(hash){
+      var u = {id: uid(), nome: nome, email: email, hash: hash, role: role, pending: true, createdAt: new Date().toISOString()};
+      users.push(u); DB.set('users', users);
+      AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
+      Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
+      setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
+      fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    });
   },
   quick: function(role){
+    if(this._cloud()){
+      Toast.show('Acesso demo indisponível com o Supabase conectado. Use seu cadastro real.', 'warn', 5000);
+      return;
+    }
     var DEMO = {
       admin:     {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin',     pending:false},
       recepcao:  {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao',  pending:false},
@@ -357,18 +478,32 @@ var Auth = {
     };
     var d = DEMO[role]; if(!d) return;
     var users = DB.get('users', []);
-    if(!users.find(function(u){ return u.email === d.email; })){
-      users.push({id: uid(), nome: d.nome, email: d.email, hash: this._hash(d.pass), role: d.role, pending: false, createdAt: new Date().toISOString()});
-      DB.set('users', users);
-    }
-    setVal('li-e', d.email);
-    var lp = document.getElementById('li-p'); if(lp) lp.value = d.pass;
-    this.login();
+    var self = this;
+    var ensure = users.find(function(u){ return u.email === d.email; })
+      ? Promise.resolve()
+      : this.makeHash(d.pass).then(function(hash){
+          users.push({id: uid(), nome: d.nome, email: d.email, hash: hash, role: d.role, pending: false, createdAt: new Date().toISOString()});
+          DB.set('users', users);
+        });
+    ensure.then(function(){
+      setVal('li-e', d.email);
+      var lp = document.getElementById('li-p'); if(lp) lp.value = d.pass;
+      self.login();
+    });
   },
   _recoverEmail: '', _recoverToken: '', _recoverExpiry: 0,
   recoverStep1: function(){
     var email = getVal('rec-e');
     if(!validEmail(email)){ fErr('fg-rec-e', true); return; }
+    if(this._cloud()){
+      var self = this;
+      Cloud._sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname}).then(function(res){
+        if(res.error){ Toast.show(self._errMsg(res.error), 'err'); return; }
+        Toast.show('Enviamos um link de redefinição para ' + email + '. Verifique sua caixa de entrada.', 'inf', 8000);
+        setVal('rec-e','');
+      });
+      return;
+    }
     var u = DB.get('users', []).find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
     if(!u){ Toast.show('E-mail não encontrado.', 'err'); fErr('fg-rec-e', true); return; }
     this._recoverEmail = email;
@@ -394,18 +529,21 @@ var Auth = {
     var em = this._recoverEmail;
     var u = users.find(function(x){ return x.email.toLowerCase() === em.toLowerCase(); });
     if(!u){ Toast.show('Erro: usuário não encontrado.', 'err'); return; }
-    u.hash = this._hash(np); DB.set('users', users);
-    AuditLog.log('Senha redefinida', this._recoverEmail, 'login');
+    var self = this;
+    this.makeHash(np).then(function(hash){
+    u.hash = hash; DB.set('users', users);
+    AuditLog.log('Senha redefinida', self._recoverEmail, 'login');
     Toast.show('Senha redefinida! Faça login.', 'ok');
     if(el1) el1.value = ''; if(el2) el2.value = '';
     setVal('rec-tok', ''); setVal('rec-e', '');
     document.getElementById('rec-s3').classList.remove('on');
     document.getElementById('rec-s1').classList.add('on');
-    this.tab('login', document.querySelector('#login-tabs .tabb'));
+    self.tab('login', document.querySelector('#login-tabs .tabb'));
+    });
   },
   _start: function(u){
     localStorage.removeItem('psi_rl');
-    DB.set('session', {userId: u.id, nome: u.nome, role: u.role, at: Date.now(), fp: this._fp()});
+    DB.set('session', {userId: u.id, nome: u.nome, role: u.role, email: u.email || '', at: Date.now(), fp: this._fp()});
     var perms = PERMISSIONS[u.role] || {};
     var pages = perms.pages || [];
     var NAV = [
@@ -475,19 +613,38 @@ var Auth = {
         setTimeout(function(){ Toast.show('Primeiro acesso? Vá em Perfil para alterar sua senha.', 'inf'); }, 2000);
       }
       Dashboard.render(); Lembrete.render(); Agenda.render(); Badge.update(); Notif.render(); Notif.dot();
+      Auth._lastActivity = Date.now();
+      if(!Auth._activityBound){
+        Auth._activityBound = true;
+        ['click','keydown','touchstart'].forEach(function(ev){
+          document.addEventListener(ev, function(){ Auth._lastActivity = Date.now(); }, {passive:true});
+        });
+      }
       if(Auth._sessionTimer) clearInterval(Auth._sessionTimer);
       Auth._sessionTimer = setInterval(function(){
         var s = DB.get('session', null); if(!s) return;
+        // encerra sessão após 30 min sem interação (LGPD/segurança de terminal compartilhado)
+        if(Date.now() - Auth._lastActivity > 30 * 60 * 1000){
+          clearInterval(Auth._sessionTimer);
+          AuditLog.log('Sessão expirada', 'Inatividade de 30 minutos', 'seguranca');
+          Auth.logout(); return;
+        }
         var remaining = (8 * 3600 * 1000) - (Date.now() - s.at);
         if(remaining <= 0){ clearInterval(Auth._sessionTimer); Auth.logout(); return; }
-        if(remaining <= 5 * 60 * 1000 && remaining > 4 * 60 * 1000){
-          var renew = confirm('Sua sessão expira em 5 minutos. Deseja continuar conectado?');
-          if(renew){ s.at = Date.now(); DB.set('session', s); Toast.show('Sessão renovada por mais 8 horas.', 'ok'); }
+        if(remaining <= 5 * 60 * 1000){
+          // renova automaticamente se houve atividade nos últimos 5 min; senão deixa expirar
+          if(Date.now() - Auth._lastActivity < 5 * 60 * 1000){
+            s.at = Date.now(); DB.set('session', s);
+            Toast.show('Sessão renovada automaticamente.', 'inf');
+          } else {
+            Toast.show('Sua sessão expira em ' + Math.ceil(remaining / 60000) + ' min. Interaja para renovar.', 'warn', 8000);
+          }
         }
       }, 60000);
     }, 380);
   },
   logout: function(){
+    if(this._cloud()){ try { Cloud._sb.auth.signOut(); } catch(e){} }
     DB.del('session');
     var app = document.getElementById('app'); if(app){ app.classList.remove('on'); app.setAttribute('aria-hidden','true'); }
     var loginEl = document.getElementById('login'); if(loginEl){ loginEl.style.display = ''; loginEl.style.opacity = '1'; }
@@ -495,6 +652,7 @@ var Auth = {
     Toast.show('Sessão encerrada.', 'inf');
   },
   _ensureSectors: function(){
+    if(this._cloud()) return; // contas demo só existem no modo local
     var SECTORS = [
       {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin'},
       {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao'},
@@ -503,20 +661,32 @@ var Auth = {
       {nome:'Prof. Carlos Melo',   email:'prof@cesmac.br',     pass:'Prof@2024!',   role:'professor'}
     ];
     var users = DB.get('users', []);
-    var changed = false;
     var self = this;
-    SECTORS.forEach(function(s){
-      if(!users.find(function(u){ return u.email === s.email; })){
-        users.push({id: uid(), nome: s.nome, email: s.email, hash: self._hash(s.pass), role: s.role, pending: false, createdAt: new Date().toISOString()});
-        changed = true;
-      }
-    });
-    if(changed) DB.set('users', users);
+    var missing = SECTORS.filter(function(s){ return !users.find(function(u){ return u.email === s.email; }); });
+    if(!missing.length) return;
+    Promise.all(missing.map(function(s){
+      return self.makeHash(s.pass).then(function(hash){
+        users.push({id: uid(), nome: s.nome, email: s.email, hash: hash, role: s.role, pending: false, createdAt: new Date().toISOString()});
+      });
+    })).then(function(){ DB.set('users', users); _updateLoginStats(); });
   },
   restore: function(){
     var s = DB.get('session', null);
-    if(!s || (Date.now() - s.at) > 8 * 3600 * 1000){ DB.del('session'); return; }
+    if(!s || (Date.now() - s.at) > 8 * 3600 * 1000){ DB.del('session'); if(this._cloud()) Cloud._sb.auth.signOut(); return; }
     if(s.fp && s.fp !== this._fp()){ DB.del('session'); return; }
+    var self = this;
+    if(this._cloud()){
+      // valida a sessão local contra a sessão real do Supabase Auth
+      Cloud._sb.auth.getSession().then(function(res){
+        var sess = res.data && res.data.session;
+        if(!sess || sess.user.id !== s.userId){ DB.del('session'); return; }
+        Cloud._sb.from('profiles').select('*').eq('id', sess.user.id).single().then(function(pr){
+          if(pr.error || !pr.data || pr.data.pending){ DB.del('session'); Cloud._sb.auth.signOut(); return; }
+          self.syncProfiles().then(function(){ self._start(self._profileToUser(pr.data, sess.user.email)); });
+        });
+      });
+      return;
+    }
     var u = DB.get('users', []).find(function(x){ return x.id === s.userId; });
     if(u && !u.pending) this._start(u);
   }
@@ -573,7 +743,7 @@ var Dashboard = {
     this._chartMonthly(appts); this._chartStatus(pats); this._upcoming(appts, pats); this._recent(pats);
   },
   _chartMonthly: function(appts){
-    var ctx = document.getElementById('ch-monthly'); if(!ctx) return;
+    var ctx = document.getElementById('ch-monthly'); if(!ctx || typeof Chart === 'undefined') return;
     Charts.kill('monthly');
     var months = []; var now = new Date();
     for(var i = 5; i >= 0; i--){ var d = new Date(now.getFullYear(), now.getMonth()-i, 1); months.push({label: d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}), ym: d.toISOString().slice(0,7)}); }
@@ -581,7 +751,7 @@ var Dashboard = {
     Charts.set('monthly', new Chart(ctx.getContext('2d'), {type:'bar', data:{labels:months.map(function(m){ return m.label; }), datasets:[{label:'Atendimentos', data:data, backgroundColor:'rgba(0,102,255,.78)', borderRadius:6, borderSkipped:false}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{stepSize:1}, grid:{color:'rgba(0,0,0,.05)'}}, x:{grid:{display:false}}}}}));
   },
   _chartStatus: function(pats){
-    var ctx = document.getElementById('ch-status'); if(!ctx) return;
+    var ctx = document.getElementById('ch-status'); if(!ctx || typeof Chart === 'undefined') return;
     Charts.kill('status');
     var ativo = pats.filter(function(p){ return p.status==='ativo'; }).length;
     var fin = pats.filter(function(p){ return p.status==='finalizado'; }).length;
@@ -637,21 +807,6 @@ var Pats = {
     if(btn) btn.classList.add('on');
     var ps = document.getElementById('pats-search'); if(ps) ps.value = '';
     this.render();
-  },
-  changePass: function(){
-    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
-    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
-    if(newpw.length < 6){ Toast.show('Senha nova deve ter pelo menos 6 caracteres.','err'); return; }
-    var sess = DB.get('session',{}), users = DB.get('users',[]);
-    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
-    if(u.hash !== Auth._hash(oldpw) && u.hash !== Auth._hashLegacy(oldpw)){
-      Toast.show('Senha atual incorreta.','err'); return;
-    }
-    u.hash = Auth._hash(newpw);
-    DB.set('users', users);
-    setVal('pf-oldpw',''); setVal('pf-newpw','');
-    AuditLog.log('Senha alterada', sess.nome, 'config');
-    Toast.show('Senha alterada com sucesso!','ok');
   },
   save: function(){
     var nome = getVal('mp-n'), nasc = getVal('mp-nasc');
@@ -754,7 +909,7 @@ var Pats = {
   },
   exportCSV: function(){
     var pats=DB.get('patients',[]);if(!pats.length){Toast.show('Nenhum paciente.','warn');return;}
-    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',"'"+(p.queixa||'')+"'",p.enc||'',fmtDate((p.createdAt||'').slice(0,10))].join(';');}).join('\n');
+    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',p.queixa||'',p.enc||'',fmtDate((p.createdAt||'').slice(0,10))].map(csvCell).join(';');}).join('\n');
     _download('pacientes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Pacientes CSV','export');Toast.show('CSV exportado!','ok');
   },
   toggleStatus: function(id){
@@ -851,7 +1006,7 @@ var Rec = {
       }).join(''); }
     }
     var moodCtx = document.getElementById('ch-mood');
-    if(moodCtx){
+    if(moodCtx && typeof Chart !== 'undefined'){
       Charts.kill('mood');
       var sorted = sessions.slice().sort(function(a,b){ return a.data.localeCompare(b.data); });
       Charts.set('mood', new Chart(moodCtx.getContext('2d'), {type:'line', data:{labels:sorted.map(function(s){ return fmtDate(s.data); }), datasets:[{label:'Humor', data:sorted.map(function(s){ return parseInt(s.humor)||3; }), borderColor:'rgba(0,102,255,.85)', backgroundColor:'rgba(0,102,255,.08)', fill:true, tension:.4, pointRadius:5, pointBackgroundColor:'rgba(0,102,255,.9)', pointBorderColor:'#fff', pointBorderWidth:2}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{min:1,max:5,ticks:{stepSize:1,callback:function(v){ return ['','😞','😟','😐','🙂','😄'][v]||v; }}, grid:{color:'rgba(0,0,0,.04)'}}, x:{grid:{display:false}, ticks:{maxTicksLimit:6}}}}}));
@@ -899,7 +1054,7 @@ var Sess = {
   },
   exportCSV: function(){
     var ss=DB.get('sessions',[]),pats=DB.get('patients',[]);if(!ss.length){Toast.show('Nenhuma sessao.','warn');return;}
-    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',"'"+(s.res||'')+"'","'"+(s.plano||'')+"'",s.cid||'',fmtDate((s.createdAt||'').slice(0,10))].join(';');}).join('\n');
+    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',s.res||'',s.plano||'',s.cid||'',fmtDate((s.createdAt||'').slice(0,10))].map(csvCell).join(';');}).join('\n');
     _download('sessoes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Sessoes CSV','export');Toast.show('CSV exportado!','ok');
   },
   save: function(){
@@ -994,16 +1149,18 @@ var Appts = {
     fErr('fg-ag-p', !pac); fErr('fg-ag-d', !data); fErr('fg-ag-h', !hora);
     if(!pac || !data || !hora){ Toast.show('Preencha os campos obrigatórios.', 'err'); return; }
     var appts = DB.get('appts', []);
-    var conflito = appts.find(function(x){ return x.data === data && x.hora === hora && x.status !== 'cancelado'; });
+    var sala = getVal('ag-sala');
+    // conflito apenas na mesma sala: salas diferentes podem atender em paralelo
+    var conflito = appts.find(function(x){ return x.data === data && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
     if(conflito){
       var cp = DB.get('patients',[]).find(function(x){ return x.id === conflito.pacienteId; });
-      Toast.show('Conflito: já existe consulta às ' + hora + ' em ' + fmtDate(data) + (cp ? ' (' + cp.nome.split(' ')[0] + ')' : '') + '.', 'err');
+      Toast.show('Conflito: ' + (sala||'a sala') + ' já ocupada às ' + hora + ' em ' + fmtDate(data) + (cp ? ' (' + cp.nome.split(' ')[0] + ')' : '') + '.', 'err');
       return;
     }
     if(this._editId){
       var appt = appts.find(function(x){ return x.id === Appts._editId; });
       if(appt){
-        var dup = appts.find(function(x){ return x.id !== Appts._editId && x.data === data && x.hora === hora && x.status !== 'cancelado'; });
+        var dup = appts.find(function(x){ return x.id !== Appts._editId && x.data === data && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
         if(dup){
           var cpd = DB.get('patients',[]).find(function(x){ return x.id === dup.pacienteId; });
           Toast.show('Conflito com ' + (cpd ? cpd.nome.split(' ')[0] : 'outro agendamento') + '.', 'err'); return;
@@ -1031,7 +1188,7 @@ var Appts = {
       }
       var dStr = d.toISOString().slice(0,10);
       if(ri > 0){
-        var dup = appts.find(function(x){ return x.data === dStr && x.hora === hora && x.status !== 'cancelado'; });
+        var dup = appts.find(function(x){ return x.data === dStr && x.hora === hora && (x.sala||'') === sala && x.status !== 'cancelado'; });
         if(dup) continue;
       }
       var a = {id:uid(), pacienteId:pac, data:dStr, hora:hora, sala:getVal('ag-sala'), prof:getVal('ag-prof'), obs:getVal('ag-obs'), status:'agendado', rec:rec||'', createdAt:new Date().toISOString()};
@@ -1045,7 +1202,10 @@ var Appts = {
     var waEl = document.getElementById('ag-wa');
     if(waEl && waEl.checked && p && p.tel){
       var msg = '*Clínica Escola de Psicologia CESMAC*\n\nOlá, ' + (p?p.nome:'') + '! 😊\n\nSua consulta foi agendada:\n📅 ' + fmtDate(data) + ' às ' + hora + (a.sala ? '\n🏥 ' + a.sala : '') + '\n\nAguardamos você!';
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      // envia direto para o número do paciente (DDI 55 quando for número nacional de 10-11 dígitos)
+      var fone = (p.tel || '').replace(/\D/g, '');
+      if(fone.length === 10 || fone.length === 11) fone = '55' + fone;
+      window.open('https://wa.me/' + fone + '?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
     }
     ['ag-prof','ag-obs','ag-rec','ag-rec-n'].forEach(function(id){ setVal(id,''); });
     fClear('fg-ag-p','fg-ag-d','fg-ag-h');
@@ -1154,7 +1314,7 @@ var Fin = {
   exportCSV: function(){
     var list = DB.get('finance',[]);
     if(!list.length){ Toast.show('Nenhum lançamento para exportar.','warn'); return; }
-    var csv = 'Data;Descrição;Categoria;Tipo;Valor;Comprovante\n' + list.map(function(l){ return fmtDate(l.data)+';'+l.desc+';'+l.cat+';'+l.tipo+';'+l.val+';'+(l.comp||'—'); }).join('\n');
+    var csv = 'Data;Descrição;Categoria;Tipo;Valor;Comprovante\n' + list.map(function(l){ return [fmtDate(l.data), l.desc, l.cat, l.tipo, l.val, l.comp||'—'].map(csvCell).join(';'); }).join('\n');
     _download('financeiro_cesmac_' + isoToday() + '.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8');
     AuditLog.log('Exportação', 'Relatório financeiro CSV', 'export');
     Toast.show('CSV exportado!','ok');
@@ -1203,25 +1363,60 @@ var Admin = {
   approve: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
-    if(!u) return; u.pending = false; DB.set('users', users);
-    AuditLog.log('Usuário aprovado', u.nome + ' (' + (ROLES[u.role]||u.role) + ')', 'paciente');
-    Toast.show(u.nome.split(' ')[0] + ' aprovado(a)!', 'ok'); this.render(); _updateLoginStats();
+    if(!u) return;
+    var self = this;
+    var done = function(){
+      u.pending = false; DB.set('users', users);
+      AuditLog.log('Usuário aprovado', u.nome + ' (' + (ROLES[u.role]||u.role) + ')', 'paciente');
+      Toast.show(u.nome.split(' ')[0] + ' aprovado(a)!', 'ok'); self.render(); _updateLoginStats();
+    };
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').update({pending: false}).eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao aprovar: ' + Auth._errMsg(res.error), 'err'); return; }
+        Auth.syncProfiles().then(function(){ done(); });
+      });
+      return;
+    }
+    done();
   },
   reject: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
     if(!confirm('Rejeitar e remover o cadastro de "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Cadastro rejeitado', u.nome, 'seguranca');
-    Toast.show('Cadastro rejeitado.', 'inf'); this.render();
+    var self = this;
+    var done = function(){
+      DB.set('users', DB.get('users', []).filter(function(x){ return x.id !== id; }));
+      if(u) AuditLog.log('Cadastro rejeitado', u.nome, 'seguranca');
+      Toast.show('Cadastro rejeitado.', 'inf'); self.render();
+    };
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').delete().eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao rejeitar: ' + Auth._errMsg(res.error), 'err'); return; }
+        done();
+      });
+      return;
+    }
+    done();
   },
   del: function(id){
     var users = DB.get('users', []);
     var u = users.find(function(x){ return x.id === id; });
     if(!confirm('Remover o usuário "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Remoção de Usuário', u.nome, 'paciente');
-    Toast.show('Usuário removido.', 'inf'); this.render(); _updateLoginStats();
+    var self = this;
+    var done = function(){
+      DB.set('users', DB.get('users', []).filter(function(x){ return x.id !== id; }));
+      if(u) AuditLog.log('Remoção de Usuário', u.nome, 'seguranca');
+      Toast.show('Usuário removido.', 'inf'); self.render(); _updateLoginStats();
+    };
+    if(Auth._cloud()){
+      // remove o perfil: sem perfil o login é bloqueado mesmo que o auth.user exista
+      Cloud._sb.from('profiles').delete().eq('id', id).then(function(res){
+        if(res.error){ Toast.show('Erro ao remover: ' + Auth._errMsg(res.error), 'err'); return; }
+        done();
+      });
+      return;
+    }
+    done();
   }
 };
 
@@ -1244,7 +1439,7 @@ var Sup = {
     }).join('');
   },
   render: function(){
-    var sess = DB.get('session', {}); if(sess.role !== 'professor') return;
+    var sess = DB.get('session', {}); if(sess.role !== 'professor' && sess.role !== 'admin') return;
     var users = DB.get('users', []);
     var alunos = users.filter(function(u){ return u.role === 'estagiario' && !u.pending; });
     var el = document.getElementById('sup-alunos'); if(!el) return;
@@ -1302,6 +1497,36 @@ var Sup = {
 
 // perfil profissional
 var Perfil = {
+  changePass: function(){
+    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
+    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
+    if(newpw.length < 8){ Toast.show('Senha nova deve ter pelo menos 8 caracteres.','err'); return; }
+    var sess = DB.get('session',{}), users = DB.get('users',[]);
+    if(Auth._cloud()){
+      // reautentica com a senha atual antes de trocar
+      Cloud._sb.auth.signInWithPassword({email: sess.email, password: oldpw}).then(function(res){
+        if(res.error){ Toast.show('Senha atual incorreta.','err'); return; }
+        Cloud._sb.auth.updateUser({password: newpw}).then(function(up){
+          if(up.error){ Toast.show(Auth._errMsg(up.error),'err'); return; }
+          setVal('pf-oldpw',''); setVal('pf-newpw','');
+          AuditLog.log('Senha alterada', sess.nome, 'seguranca');
+          Toast.show('Senha alterada com sucesso!','ok');
+        });
+      });
+      return;
+    }
+    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
+    Auth.verifyHash(oldpw, u.hash).then(function(ok){
+      if(!ok){ Toast.show('Senha atual incorreta.','err'); return; }
+      Auth.makeHash(newpw).then(function(hash){
+        u.hash = hash;
+        DB.set('users', users);
+        setVal('pf-oldpw',''); setVal('pf-newpw','');
+        AuditLog.log('Senha alterada', sess.nome, 'seguranca');
+        Toast.show('Senha alterada com sucesso!','ok');
+      });
+    });
+  },
   render: function(){
     var sess = DB.get('session', {});
     var users = DB.get('users', []);
@@ -1325,7 +1550,7 @@ var Perfil = {
       + '<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-p" onclick="Perfil.save()">Salvar perfil</button></div>'
       + '<div class="card" style="margin-top:16px"><div class="cardh"><h3>Alterar senha</h3></div><div class="cardb"><div class="g2">'
       + '<div class="fg"><label class="fl">Senha atual</label><input type="password" id="pf-oldpw" class="fi" placeholder="Senha atual"></div>'
-      + '<div class="fg"><label class="fl">Nova senha</label><input type="password" id="pf-newpw" class="fi" placeholder="Mínimo 6 caracteres"></div>'
+      + '<div class="fg"><label class="fl">Nova senha</label><input type="password" id="pf-newpw" class="fi" placeholder="Mínimo 8 caracteres" autocomplete="new-password"></div>'
       + '</div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-s" onclick="Perfil.changePass()">Alterar senha</button></div></div></div>';
   },
   save: function(){
@@ -1338,6 +1563,11 @@ var Perfil = {
     var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
     u.profil = {cpf: cpf, crp: crp, abord: abord, nome: getVal('pf-nome'), especialidades: getVal('pf-esp'), turnos: turnos, updatedAt: new Date().toISOString()};
     DB.set('users', users);
+    if(Auth._cloud()){
+      Cloud._sb.from('profiles').update({profil: u.profil, crp: crp}).eq('id', sess.userId).then(function(res){
+        if(res.error) Toast.show('Perfil salvo localmente, mas falhou na nuvem: ' + Auth._errMsg(res.error), 'warn');
+      });
+    }
     var warn = document.getElementById('dash-prof-warn'); if(warn) warn.style.display = 'none';
     AuditLog.log('Perfil atualizado', 'CRP: ' + crp, 'paciente');
     Toast.show('Perfil salvo com sucesso!', 'ok');
@@ -1399,7 +1629,7 @@ var Search = {
         return '<div class="li click" data-pid="' + esc(p.id) + '" onclick="Rec.view(this.getAttribute(\'data-pid\'));M.close(\'m-search\')">'
           + avHtml(p, 28, '.64rem')
           + '<div class="linf"><div class="liname">'+hl(p.nome,val)+'</div>'
-          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' \u00b7 '+(p.tel||'\u2014')+(p.cpf?' \u00b7 '+p.cpf:'')+'</div></div>'
+          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' \u00b7 '+esc(p.tel||'\u2014')+(p.cpf?' \u00b7 '+esc(p.cpf):'')+'</div></div>'
           + '<span style="font-size:.62rem;color:var(--ink3)">'+Math.round(r.s)+'%</span></div>';
       }).join('');
       M.open('m-search');
@@ -1900,6 +2130,10 @@ var PDF = {
 var Cloud = {
   _sb: null,
   _timer: {},
+  // credenciais públicas do projeto (a anon key é pública por design;
+  // a segurança vem das políticas RLS no banco — ver supabase/schema.sql)
+  _DEFAULT_URL: 'https://daokctlqggubgrikrubj.supabase.co',
+  _DEFAULT_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhb2tjdGxxZ2d1YmdyaWtydWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0OTIxMTMsImV4cCI6MjA5NzA2ODExM30.BXOUGICIT-cuFlqJUo4SzDBJEfdfywuw4-SXdHHV9sY',
   _SYNC: ['patients','sessions','appts','anamneses','finance','audit','notifs','vinculos','users','consentimentos','plans'],
   _SCHEMA: `-- PsiCESMAC · Schema Supabase
 -- Execute no SQL Editor do projeto
@@ -2004,8 +2238,8 @@ CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
     Toast.show('Desconectado da nuvem.', 'inf');
   },
   restore: function(){
-    var url = localStorage.getItem('psi_cloud_url') || 'https://daokctlqggubgrikrubj.supabase.co';
-    var key = localStorage.getItem('psi_cloud_key');
+    var url = localStorage.getItem('psi_cloud_url') || this._DEFAULT_URL;
+    var key = localStorage.getItem('psi_cloud_key') || this._DEFAULT_KEY;
     if(url && key && typeof supabase !== 'undefined'){
       try {
         this._sb = supabase.createClient(url, key);
@@ -2243,8 +2477,12 @@ document.addEventListener('keydown', function(e){
 });
 
 // inicialização
-window.onerror = function(msg, src, line){ console.warn('Erro:', msg, 'L'+line); return true; };
-window.addEventListener('unhandledrejection', function(e){ console.warn('Promise:', e.reason); e.preventDefault(); });
+window.onerror = function(msg, src, line){
+  console.error('Erro não tratado:', msg, src + ':' + line);
+  try { Toast.show('Ocorreu um erro inesperado. Se persistir, contate o suporte.', 'err'); } catch(e){}
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e){ console.error('Promise rejeitada:', e.reason); });
 
 document.addEventListener('DOMContentLoaded', function(){
   (function(){
