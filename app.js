@@ -1,12 +1,13 @@
 'use strict';
 
-// modelo de dados e permissões
+// modelo de dados e permissões (espelha server/constants/permissions.js —
+// aqui e' so pra montar o menu certo; quem decide de verdade e' o servidor)
 var PERMISSIONS = {
-  admin:     {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','financeiro','auditoria','admin','supervisao','perfil','config'],canDeletePat:true,canDeleteUser:true,canViewAllPats:true,canApprove:true},
-  recepcao:  {pages:['dashboard','agenda','pacientes','anamnese'],canDeletePat:false,canDeleteUser:false,canViewAllPats:true},
-  estagiario:{pages:['dashboard','prontuarios','anamnese'],canDeletePat:false,canDeleteUser:false,canViewAllPats:false},
-  professor: {pages:['dashboard','prontuarios','anamnese','supervisao'],canDeletePat:false,canDeleteUser:false,canViewAllPats:true},
-  psicologo: {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','perfil'],canDeletePat:true,canDeleteUser:false,canViewOwnPats:true}
+  admin:     {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','financeiro','auditoria','admin','supervisao','perfil','config'],canDeletePat:true},
+  recepcao:  {pages:['dashboard','agenda','pacientes','anamnese'],canDeletePat:false},
+  estagiario:{pages:['dashboard','prontuarios','anamnese'],canDeletePat:false},
+  professor: {pages:['dashboard','prontuarios','anamnese','supervisao'],canDeletePat:false},
+  psicologo: {pages:['dashboard','agenda','pacientes','prontuarios','anamnese','perfil'],canDeletePat:true}
 };
 
 var ROLES  = {admin:'Administrador',recepcao:'Recepção',estagiario:'Estagiário(a)',professor:'Professor(a) / Supervisor(a)',psicologo:'Psicólogo(a) Voluntário(a)'};
@@ -15,32 +16,60 @@ var PRIO_C = {alta:'prio-alta',media:'prio-media',baixa:'prio-baixa'};
 var PRIO_L = {alta:'Alta',media:'Média',baixa:'Baixa'};
 var ABDG   = {agendado:'bb',realizado:'bg',cancelado:'br'};
 
-// armazenamento
-var DB = {
-  _k: function(k){ return 'psi_' + k; },
-  get: function(k, def){
-    try { var v = localStorage.getItem(this._k(k)); return v !== null ? JSON.parse(v) : def; }
-    catch(e){ return def; }
+// sessao do usuario logado (fica so em memoria - a autoridade real e' o
+// cookie de sessao httpOnly, que o JS nem consegue ler)
+var SESSAO = null;
+
+// cliente da API - troca a antiga camada de localStorage por chamadas ao
+// backend. Em erro (exceto 401), ja mostra o toast e lanca, entao quem
+// chama so precisa de um try/catch vazio pra parar o fluxo.
+var Api = {
+  base: '/api',
+  _req: async function(method, path, body){
+    var opts = {method: method, credentials: 'same-origin', headers: {}};
+    if(body !== undefined){ opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    var res;
+    try { res = await fetch(this.base + path, opts); }
+    catch(e){ Toast.show('Sem conexão com o servidor.', 'err'); throw e; }
+    var data = null;
+    try { data = await res.json(); } catch(e){}
+    if(res.status === 401 && SESSAO){
+      SESSAO = null;
+      var app = document.getElementById('app'); if(app){ app.classList.remove('on'); app.setAttribute('aria-hidden','true'); }
+      var loginEl = document.getElementById('login'); if(loginEl){ loginEl.style.display=''; loginEl.style.opacity='1'; }
+      Toast.show('Sessão expirada. Faça login novamente.', 'warn');
+      throw new Error('sessao expirada');
+    }
+    if(!res.ok){
+      var msg = (data && data.erro) || 'Erro no servidor.';
+      if(res.status !== 401) Toast.show(msg, 'err');
+      throw new Error(msg);
+    }
+    return data;
   },
-  set: function(k, v){
-    try { localStorage.setItem(this._k(k), JSON.stringify(v)); }
-    catch(e){ console.error('DB.set', k, e); }
-    if(Cloud._sb && Cloud._SYNC.indexOf(k) >= 0) Cloud._debouncePush(k, v);
-  },
-  del: function(k){ try { localStorage.removeItem(this._k(k)); } catch(e){} }
+  get:   function(p){ return this._req('GET', p); },
+  post:  function(p, b){ return this._req('POST', p, b); },
+  patch: function(p, b){ return this._req('PATCH', p, b); },
+  put:   function(p, b){ return this._req('PUT', p, b); },
+  del:   function(p){ return this._req('DELETE', p); }
 };
+
+// registra na auditoria eventos que nao correspondem a nenhuma escrita de
+// dados (visualizar prontuário, exportar, tentativa de acesso bloqueada)
+function logEvent(action, detail, tipo){
+  Api.post('/audit', {action: action, detail: detail || '', tipo: tipo}).catch(function(){});
+}
 
 // utilitários
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function esc(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function qesc(s){ return String(s || '').replace(/'/g, "\\'"); }
 function getVal(id){ var el = document.getElementById(id); return el ? (el.value || '').trim() : ''; }
 function setVal(id, v){ var el = document.getElementById(id); if(el) el.value = v || ''; }
 function fErr(id, on){ var el = document.getElementById(id); if(el) el.classList.toggle('err', !!on); }
 function fClear(){ for(var i = 0; i < arguments.length; i++) fErr(arguments[i], false); }
 function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
 function isoToday(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
-function fmtDate(d){ if(!d) return '—'; var p = d.split('-'); return p.length < 3 ? d : p[2]+'/'+p[1]+'/'+p[0]; }
+function fmtDate(d){ if(!d) return '—'; d = String(d).slice(0,10); var p = d.split('-'); return p.length < 3 ? d : p[2]+'/'+p[1]+'/'+p[0]; }
 function fmtDT(iso){ if(!iso) return '—'; var d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); }
 function fmtAge(nasc){ if(!nasc) return null; var d = new Date(nasc), n = new Date(); var y = n.getFullYear() - d.getFullYear(); if(n < new Date(n.getFullYear(), d.getMonth(), d.getDate())) y--; return y >= 0 ? y : null; }
 function fmtCur(v){ return 'R$ ' + parseFloat(v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2}); }
@@ -55,23 +84,9 @@ function avBg(n){ var h = ['#0066ff','#0a4d22','#b91c1c','#6d28d9','#0e7490','#b
 function empty(t, s){ return '<div class="es"><div class="esico"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg></div><h3>' + esc(t) + '</h3>' + (s ? '<p>' + esc(s) + '</p>' : '') + '</div>'; }
 function _download(name, txt, mime){ var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], {type: mime || 'text/plain'})); a.download = name; a.click(); URL.revokeObjectURL(a.href); }
 
-function _visiblePats(pats, sess){
-  if(!sess || !sess.role) return [];
-  var role = sess.role;
-  if(role === 'admin' || role === 'recepcao' || role === 'professor') return pats;
-  if(role === 'psicologo'){
-    return pats.filter(function(p){ return !p.profId || p.profId === sess.userId; });
-  }
-  if(role === 'estagiario'){
-    var ids = DB.get('vinculos', []).filter(function(v){ return v.estId === sess.userId && v.ativo; }).map(function(v){ return v.pacId; });
-    return pats.filter(function(p){ return ids.indexOf(p.id) >= 0; });
-  }
-  return [];
-}
-
-function _syncSelects(){
-  var sess = DB.get('session', {});
-  var pats = _visiblePats(DB.get('patients', []), sess);
+async function _syncSelects(){
+  var pats;
+  try { pats = await Api.get('/patients'); } catch(e){ return; }
   var opts = '<option value="">— Selecione —</option>' + pats.map(function(p){ return '<option value="' + esc(p.id) + '">' + esc(p.nome) + '</option>'; }).join('');
   ['ms-p', 'ag-p', 'pron-sel', 'ana-pac'].forEach(function(id){
     var el = document.getElementById(id); if(!el) return;
@@ -79,14 +94,17 @@ function _syncSelects(){
   });
 }
 
-function _updateLoginStats(){
-  var vals = [DB.get('patients',[]).length, DB.get('sessions',[]).length, DB.get('users',[]).length];
+async function _updateLoginStats(){
+  var s;
+  try { s = await Api.get('/stats/public'); } catch(e){ return; }
+  var vals = [s.pacientes, s.sessoes, s.profissionais];
   ['lv-p','lv-s','lv-u'].forEach(function(id, i){
     var el = document.getElementById(id); if(el) el.textContent = vals[i] < 10 ? '0' + vals[i] : String(vals[i]);
   });
 }
 
-// arrastar e soltar
+// arrastar e soltar (mock — os arquivos ficam so na memoria da pagina,
+// nao existe endpoint de upload; recurso decorativo desde a versao original)
 var DZ = {
   _files: {},
   click: function(dzId, inputId){ var el = document.getElementById(inputId); if(el) el.click(); },
@@ -103,7 +121,6 @@ var DZ = {
       if(f.size > 5242880){ Toast.show('Arquivo muito grande (máx 5 MB).', 'err'); return; }
       self._files[dzId].push({name: f.name, size: f.size, type: f.type, token: 'tok_' + uid(), at: new Date().toISOString()});
       self._render(dzId);
-      AuditLog.log('Anexo adicionado', '"' + f.name + '"', 'paciente');
     });
   },
   _render: function(dzId){
@@ -134,39 +151,24 @@ var Charts = {
   set: function(k, c){ this.kill(k); this._r[k] = c; }
 };
 
-// notificações
+// notificações — so o admin enxerga (espelha o log de auditoria, que
+// agora e' exclusivo do admin no servidor)
 var Notif = {
-  add: function(msg, type){
-    var list = DB.get('notifs', []);
-    list.unshift({id: uid(), msg: msg, type: type || 'inf', read: false, at: new Date().toISOString()});
-    DB.set('notifs', list.slice(0, 60));
-    this.render(); this.dot();
-  },
-  render: function(){
-    var list = DB.get('notifs', []);
+  render: async function(){
     var el = document.getElementById('nlist'); if(!el) return;
-    if(!list.length){ el.innerHTML = '<div style="padding:18px;text-align:center;font-size:.78rem;color:var(--ink4)">Nenhuma notificação</div>'; return; }
-    el.innerHTML = list.slice(0, 12).map(function(n){
-      return '<div class="npi" data-nid="' + esc(n.id) + '" onclick="Notif.read(this.getAttribute(\'data-nid\'))">'
-        + '<div class="npidot' + (n.read ? ' r' : '') + '"></div>'
-        + '<div><div class="npitext">' + esc(n.msg) + '</div>'
+    if(!SESSAO || SESSAO.role !== 'admin'){ el.innerHTML = '<div style="padding:18px;text-align:center;font-size:.78rem;color:var(--ink4)">Nenhuma notificação</div>'; return; }
+    var logs;
+    try { logs = await Api.get('/audit'); } catch(e){ return; }
+    if(!logs.length){ el.innerHTML = '<div style="padding:18px;text-align:center;font-size:.78rem;color:var(--ink4)">Nenhuma notificação</div>'; return; }
+    el.innerHTML = logs.slice(0, 12).map(function(n){
+      return '<div class="npi">'
+        + '<div class="npidot"></div>'
+        + '<div><div class="npitext">' + esc(n.action + ': ' + n.detail) + '</div>'
         + '<div class="npitime">' + fmtDT(n.at) + '</div></div></div>';
     }).join('');
   },
-  read: function(id){
-    var list = DB.get('notifs', []);
-    var n = list.find(function(x){ return x.id === id; });
-    if(n) n.read = true;
-    DB.set('notifs', list); this.render(); this.dot();
-  },
-  readAll: function(){
-    DB.set('notifs', DB.get('notifs', []).map(function(n){ return Object.assign({}, n, {read: true}); }));
-    this.render(); this.dot();
-  },
   dot: function(){
-    var n = DB.get('notifs', []).filter(function(x){ return !x.read; }).length;
-    var d = document.getElementById('ndot'); if(d) d.style.display = n ? '' : 'none';
-    var b = document.getElementById('bdg-au'); if(b) b.textContent = String(n);
+    var d = document.getElementById('ndot'); if(d) d.style.display = 'none';
   }
 };
 
@@ -219,18 +221,15 @@ var M = {
 };
 document.addEventListener('click', function(e){ if(e.target && e.target.classList && e.target.classList.contains('mbg')) M.closeAll(); });
 
-// log de auditoria
+// log de auditoria — leitura e exportação vêm do servidor; a gravação
+// acontece automaticamente em cada rota (ou via logEvent para os eventos
+// que não correspondem a uma escrita, tipo "prontuário acessado")
 var AuditLog = {
-  log: function(action, detail, type){
-    var sess = DB.get('session', {});
-    var logs = DB.get('audit', []);
-    logs.unshift({id: uid(), action: action, detail: detail, type: type || 'inf', user: sess.nome || 'Sistema', userId: sess.userId || '—', at: new Date().toISOString()});
-    DB.set('audit', logs.slice(0, 500));
-    Notif.add(action + ': ' + detail, type);
-    this.render();
-  },
-  render: function(){
-    var logs = DB.get('audit', []);
+  _cache: [],
+  render: async function(){
+    var logs;
+    try { logs = await Api.get('/audit'); } catch(e){ return; }
+    this._cache = logs;
     var fil = document.getElementById('audit-fil');
     var f = fil ? fil.value : '';
     if(f) logs = logs.filter(function(l){ return l.type === f || l.action.toLowerCase().indexOf(f) >= 0; });
@@ -255,33 +254,15 @@ var AuditLog = {
     }).join('');
   },
   export: function(){
-    var logs = DB.get('audit', []);
-    var txt = logs.map(function(l){ return '[' + fmtDT(l.at) + '] ' + l.user + ' | ' + l.action + ': ' + l.detail; }).join('\n');
+    var txt = this._cache.map(function(l){ return '[' + fmtDT(l.at) + '] ' + l.user + ' | ' + l.action + ': ' + l.detail; }).join('\n');
     _download('auditoria_' + isoToday() + '.txt', txt, 'text/plain');
+    logEvent('Exportação', 'Log de auditoria TXT', 'export');
     Toast.show('Log exportado!', 'ok');
   }
 };
 
 // autenticação
 var Auth = {
-  _sessionTimer: null,
-  _fp: function(){try{return btoa(navigator.userAgent.slice(0,40)+screen.width+screen.height+navigator.language).slice(0,24);}catch(e){return'';}},
-  _hashLegacy: function(s){ var h = 0x811c9dc5; for(var i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; } return h.toString(16); },
-  _hash: function(s){
-    s = 'psi$cesmac#' + s + '#2024';
-    var a=0x67452301,b=0xefcdab89,c=0x98badcfe,d=0x10325476;
-    for(var r=0;r<500;r++){
-      for(var i=0;i<s.length;i++){
-        var ch=s.charCodeAt(i);
-        a=(Math.imul(a^ch,0x01000193)+b)>>>0;
-        b=(Math.imul(b^(ch*7),0x811c9dc5)+c)>>>0;
-        c=(Math.imul(c^(ch*13),0x0100019d)+d)>>>0;
-        d=(Math.imul(d^(ch*19),0x811c9dc7)+a)>>>0;
-      }
-      s=(a>>>0).toString(36)+(b>>>0).toString(36)+(c>>>0).toString(36)+(d>>>0).toString(36);
-    }
-    return (a>>>0).toString(16)+(b>>>0).toString(16)+(c>>>0).toString(16)+(d>>>0).toString(16);
-  },
   tab: function(mode, btn){
     ['login', 'register', 'recover'].forEach(function(m){
       var el = document.getElementById('pn-' + m);
@@ -290,7 +271,7 @@ var Auth = {
     document.querySelectorAll('#login-tabs .tabb').forEach(function(b){ b.classList.remove('on'); });
     if(btn) btn.classList.add('on');
   },
-  login: function(){
+  login: async function(){
     var email = getVal('li-e'), pass = document.getElementById('li-p') ? document.getElementById('li-p').value : '';
     var eok = validEmail(email), pok = pass.length > 0;
     fErr('fg-li-e', !eok); fErr('fg-li-p', !pok);
@@ -298,114 +279,69 @@ var Auth = {
     var btn = document.getElementById('btn-login'), txt = document.getElementById('btn-login-txt');
     if(btn) btn.disabled = true;
     if(txt) txt.innerHTML = '<svg style="width:13px;height:13px;fill:currentColor;animation:spin .7s linear infinite;display:inline-block" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 1 0 20A10 10 0 0 1 12 2zm0 2a8 8 0 0 0 0 16A8 8 0 0 0 12 4z" opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10h-2A8 8 0 0 0 12 4V2z"/></svg> Verificando…';
-    var self = this;
-    setTimeout(function(){
-      var users = DB.get('users', []);
-      var rlKey='psi_rl',rl=JSON.parse(localStorage.getItem(rlKey)||'{"n":0,"t":0}');
-      if(rl.n>=5&&(Date.now()-rl.t)<300000){
-        Toast.show('Muitas tentativas. Aguarde '+Math.ceil((300000-(Date.now()-rl.t))/60000)+' min.','err');
-        if(btn)btn.disabled=false;if(txt)txt.textContent='Acessar sistema';return;
-      }
-      if(rl.n>=5)rl={n:0,t:0};
-      var u = users.find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
-      if(!u || (u.hash !== self._hash(pass) && u.hash !== self._hashLegacy(pass))){
-        rl.n++;rl.t=Date.now();localStorage.setItem(rlKey,JSON.stringify(rl));
-        Toast.show('E-mail ou senha incorretos.'+(rl.n>=3?' ('+(5-rl.n)+' restante'+(5-rl.n!==1?'s':'')+')':""),'err');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        AuditLog.log('Falha de login', 'Tentativa: ' + email, 'seguranca');
-        return;
-      }
-      if(u.pending){
-        Toast.show('Cadastro pendente de aprovação pelo Administrador.', 'warn');
-        if(btn) btn.disabled = false;
-        if(txt) txt.textContent = 'Acessar sistema';
-        return;
-      }
-      if(u.hash === self._hashLegacy(pass) && u.hash !== self._hash(pass)){
-        u.hash = self._hash(pass); DB.set('users', users);
-      }
-      AuditLog.log('Login', 'Acesso: ' + u.email, 'login');
-      self._start(u);
-    }, 600);
+    try {
+      var u = await Api.post('/auth/login', {email: email, senha: pass});
+      await Auth._start(u);
+    } catch(e){
+      fErr('fg-li-p', true);
+    } finally {
+      if(btn) btn.disabled = false;
+      if(txt) txt.textContent = 'Acessar sistema';
+    }
   },
-  register: function(){
+  register: async function(){
     var nome = getVal('rg-n'), email = getVal('rg-e');
     var pass = document.getElementById('rg-p') ? document.getElementById('rg-p').value : '';
     var role = getVal('rg-r');
     var nok = nome.length > 0, eok = validEmail(email), pok = pass.length >= 8;
     fErr('fg-rg-n', !nok); fErr('fg-rg-e', !eok); fErr('fg-rg-p', !pok);
     if(!nok || !eok || !pok){ Toast.show('Corrija os campos destacados.', 'err'); return; }
-    var users = DB.get('users', []);
-    if(users.find(function(u){ return u.email.toLowerCase() === email.toLowerCase(); })){
-      Toast.show('E-mail já cadastrado.', 'err'); fErr('fg-rg-e', true); return;
-    }
-    var u = {id: uid(), nome: nome, email: email, hash: this._hash(pass), role: role, pending: true, createdAt: new Date().toISOString()};
-    users.push(u); DB.set('users', users);
-    AuditLog.log('Cadastro solicitado', nome + ' (' + (ROLES[role] || role) + ')', 'paciente');
-    Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
-    setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
-    fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    try {
+      await Api.post('/auth/register', {nome: nome, email: email, senha: pass, role: role});
+      Toast.show('Solicitação enviada! Aguarde aprovação do Administrador.', 'inf', 5000);
+      setVal('rg-n',''); setVal('rg-e',''); if(document.getElementById('rg-p')) document.getElementById('rg-p').value='';
+      fClear('fg-rg-n','fg-rg-e','fg-rg-p');
+    } catch(e){ fErr('fg-rg-e', true); }
   },
-  quick: function(role){
-    var DEMO = {
-      admin:     {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin',     pending:false},
-      recepcao:  {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao',  pending:false},
-      psicologo: {nome:'Paula Costa',         email:'psico@cesmac.br',    pass:'Psi@2024!',    role:'psicologo', pending:false},
-      estagiario:{nome:'Ana Estagiária',      email:'est@cesmac.br',      pass:'Est@2024!',    role:'estagiario',pending:false},
-      professor: {nome:'Prof. Carlos Melo',   email:'prof@cesmac.br',     pass:'Prof@2024!',   role:'professor', pending:false}
-    };
-    var d = DEMO[role]; if(!d) return;
-    var users = DB.get('users', []);
-    if(!users.find(function(u){ return u.email === d.email; })){
-      users.push({id: uid(), nome: d.nome, email: d.email, hash: this._hash(d.pass), role: d.role, pending: false, createdAt: new Date().toISOString()});
-      DB.set('users', users);
-    }
-    setVal('li-e', d.email);
-    var lp = document.getElementById('li-p'); if(lp) lp.value = d.pass;
-    this.login();
-  },
-  _recoverEmail: '', _recoverToken: '', _recoverExpiry: 0,
-  recoverStep1: function(){
+  _recoverEmail: '', _recoverToken: '',
+  recoverStep1: async function(){
     var email = getVal('rec-e');
     if(!validEmail(email)){ fErr('fg-rec-e', true); return; }
-    var u = DB.get('users', []).find(function(x){ return x.email.toLowerCase() === email.toLowerCase(); });
-    if(!u){ Toast.show('E-mail não encontrado.', 'err'); fErr('fg-rec-e', true); return; }
-    this._recoverEmail = email;
-    this._recoverToken = Math.random().toString(36).slice(2, 10).toUpperCase();
-    this._recoverExpiry = Date.now() + 15 * 60 * 1000;
-    Toast.show('Token (simulação): ' + this._recoverToken, 'inf', 10000);
-    document.getElementById('rec-s1').classList.remove('on');
-    document.getElementById('rec-s2').classList.add('on');
+    try {
+      var r = await Api.post('/auth/recover/request', {email: email});
+      Auth._recoverEmail = email;
+      Toast.show('Token (simulação): ' + r.tokenSimulado, 'inf', 10000);
+      document.getElementById('rec-s1').classList.remove('on');
+      document.getElementById('rec-s2').classList.add('on');
+    } catch(e){ fErr('fg-rec-e', true); }
   },
   recoverStep2: function(){
     var tok = (getVal('rec-tok') || '').toUpperCase();
-    if(Date.now() > this._recoverExpiry){ Toast.show('Token expirado.', 'err'); document.getElementById('rec-s2').classList.remove('on'); document.getElementById('rec-s1').classList.add('on'); return; }
-    if(tok !== this._recoverToken){ Toast.show('Token inválido.', 'err'); return; }
+    if(!tok){ Toast.show('Informe o token.', 'err'); return; }
+    Auth._recoverToken = tok;
     document.getElementById('rec-s2').classList.remove('on');
     document.getElementById('rec-s3').classList.add('on');
   },
-  recoverStep3: function(){
+  recoverStep3: async function(){
     var el1 = document.getElementById('rec-np'), el2 = document.getElementById('rec-np2');
     var np = el1 ? el1.value : '', np2 = el2 ? el2.value : '';
     if(np.length < 8){ Toast.show('Senha mínimo 8 caracteres.', 'err'); return; }
     if(np !== np2){ Toast.show('Senhas não coincidem.', 'err'); return; }
-    var users = DB.get('users', []);
-    var em = this._recoverEmail;
-    var u = users.find(function(x){ return x.email.toLowerCase() === em.toLowerCase(); });
-    if(!u){ Toast.show('Erro: usuário não encontrado.', 'err'); return; }
-    u.hash = this._hash(np); DB.set('users', users);
-    AuditLog.log('Senha redefinida', this._recoverEmail, 'login');
-    Toast.show('Senha redefinida! Faça login.', 'ok');
-    if(el1) el1.value = ''; if(el2) el2.value = '';
-    setVal('rec-tok', ''); setVal('rec-e', '');
-    document.getElementById('rec-s3').classList.remove('on');
-    document.getElementById('rec-s1').classList.add('on');
-    this.tab('login', document.querySelector('#login-tabs .tabb'));
+    try {
+      await Api.post('/auth/recover/confirm', {email: Auth._recoverEmail, token: Auth._recoverToken, senhaNova: np});
+      Toast.show('Senha redefinida! Faça login.', 'ok');
+      if(el1) el1.value = ''; if(el2) el2.value = '';
+      setVal('rec-tok', ''); setVal('rec-e', '');
+      document.getElementById('rec-s3').classList.remove('on');
+      document.getElementById('rec-s1').classList.add('on');
+      Auth.tab('login', document.querySelector('#login-tabs .tabb'));
+    } catch(e){
+      document.getElementById('rec-s3').classList.remove('on');
+      document.getElementById('rec-s1').classList.add('on');
+    }
   },
-  _start: function(u){
-    localStorage.removeItem('psi_rl');
-    DB.set('session', {userId: u.id, nome: u.nome, role: u.role, at: Date.now(), fp: this._fp()});
+  _start: async function(u){
+    SESSAO = u;
     var perms = PERMISSIONS[u.role] || {};
     var pages = perms.pages || [];
     var NAV = [
@@ -456,69 +392,31 @@ var Auth = {
     }
     var loginEl = document.getElementById('login');
     if(loginEl){ loginEl.style.transition = 'opacity .4s'; loginEl.style.opacity = '0'; }
-    setTimeout(function(){
-      if(loginEl) loginEl.style.display = 'none';
-      var app = document.getElementById('app');
-      if(app){ app.classList.add('on'); app.removeAttribute('aria-hidden'); }
-      _seed(); _updateLoginStats();
-      if(u.role === 'psicologo' && !u.profil){
-        var warn = document.getElementById('dash-prof-warn');
-        if(warn) warn.style.display = '';
-        Toast.show('⚠️ Complete seu Perfil Profissional para atuar.', 'warn', 6000);
-      }
-      if(!u._loggedBefore){
-        u._loggedBefore = true;
-        var allUsers = DB.get('users', []);
-        var idx = allUsers.findIndex(function(x){ return x.id === u.id; });
-        if(idx >= 0) allUsers[idx] = u;
-        DB.set('users', allUsers);
-        setTimeout(function(){ Toast.show('Primeiro acesso? Vá em Perfil para alterar sua senha.', 'inf'); }, 2000);
-      }
-      Dashboard.render(); Lembrete.render(); Agenda.render(); Badge.update(); Notif.render(); Notif.dot();
-      if(Auth._sessionTimer) clearInterval(Auth._sessionTimer);
-      Auth._sessionTimer = setInterval(function(){
-        var s = DB.get('session', null); if(!s) return;
-        var remaining = (8 * 3600 * 1000) - (Date.now() - s.at);
-        if(remaining <= 0){ clearInterval(Auth._sessionTimer); Auth.logout(); return; }
-        if(remaining <= 5 * 60 * 1000 && remaining > 4 * 60 * 1000){
-          var renew = confirm('Sua sessão expira em 5 minutos. Deseja continuar conectado?');
-          if(renew){ s.at = Date.now(); DB.set('session', s); Toast.show('Sessão renovada por mais 8 horas.', 'ok'); }
-        }
-      }, 60000);
-    }, 380);
+    await new Promise(function(resolve){ setTimeout(resolve, 380); });
+    if(loginEl) loginEl.style.display = 'none';
+    var app = document.getElementById('app');
+    if(app){ app.classList.add('on'); app.removeAttribute('aria-hidden'); }
+    _updateLoginStats();
+    if(u.role === 'psicologo' && !(u.profil && u.profil.crp)){
+      var warn = document.getElementById('dash-prof-warn');
+      if(warn) warn.style.display = '';
+      Toast.show('⚠️ Complete seu Perfil Profissional para atuar.', 'warn', 6000);
+    }
+    Dashboard.render(); Lembrete.render(); Agenda.render(); Badge.update(); Notif.render(); Notif.dot();
   },
-  logout: function(){
-    DB.del('session');
+  logout: async function(){
+    try { await Api.post('/auth/logout'); } catch(e){}
+    SESSAO = null;
     var app = document.getElementById('app'); if(app){ app.classList.remove('on'); app.setAttribute('aria-hidden','true'); }
     var loginEl = document.getElementById('login'); if(loginEl){ loginEl.style.display = ''; loginEl.style.opacity = '1'; }
     var lp = document.getElementById('li-p'); if(lp) lp.value = '';
     Toast.show('Sessão encerrada.', 'inf');
   },
-  _ensureSectors: function(){
-    var SECTORS = [
-      {nome:'Admin CESMAC',        email:'admin@cesmac.br',    pass:'Admin@2024!',  role:'admin'},
-      {nome:'Maria Recepcionista', email:'recepcao@cesmac.br', pass:'Rec@2024!',    role:'recepcao'},
-      {nome:'Paula Costa',         email:'psico@cesmac.br',    pass:'Psi@2024!',    role:'psicologo'},
-      {nome:'Ana Estagiária',      email:'est@cesmac.br',      pass:'Est@2024!',    role:'estagiario'},
-      {nome:'Prof. Carlos Melo',   email:'prof@cesmac.br',     pass:'Prof@2024!',   role:'professor'}
-    ];
-    var users = DB.get('users', []);
-    var changed = false;
-    var self = this;
-    SECTORS.forEach(function(s){
-      if(!users.find(function(u){ return u.email === s.email; })){
-        users.push({id: uid(), nome: s.nome, email: s.email, hash: self._hash(s.pass), role: s.role, pending: false, createdAt: new Date().toISOString()});
-        changed = true;
-      }
-    });
-    if(changed) DB.set('users', users);
-  },
-  restore: function(){
-    var s = DB.get('session', null);
-    if(!s || (Date.now() - s.at) > 8 * 3600 * 1000){ DB.del('session'); return; }
-    if(s.fp && s.fp !== this._fp()){ DB.del('session'); return; }
-    var u = DB.get('users', []).find(function(x){ return x.id === s.userId; });
-    if(u && !u.pending) this._start(u);
+  restore: async function(){
+    try {
+      var u = await Api.get('/auth/me');
+      await Auth._start(u);
+    } catch(e){ /* nao logado - mostra a tela de login normalmente */ }
   }
 };
 
@@ -527,11 +425,11 @@ var PAGE_TITLES = {dashboard:'Dashboard', agenda:'Agenda', pacientes:'Pacientes'
 
 var UI = {
   nav: function(pg, btn){
-    var sess = DB.get('session', {});
+    var sess = SESSAO || {};
     var perms = PERMISSIONS[sess.role] || {};
     var pages = perms.pages || [];
     if(pg !== 'dashboard' && pages.indexOf(pg) < 0){
-      AuditLog.log('Acesso bloqueado', 'Tentativa: ' + pg, 'seguranca');
+      logEvent('Acesso bloqueado', 'Tentativa: ' + pg, 'seguranca');
       Toast.show('Acesso não autorizado.', 'err'); return;
     }
     document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('on'); });
@@ -540,7 +438,7 @@ var UI = {
     var navBtn = btn || document.querySelector('.sbl-i[data-page="' + pg + '"]');
     if(navBtn){ navBtn.classList.add('on'); navBtn.setAttribute('aria-current','page'); }
     var tbt = document.getElementById('tbtitle'); if(tbt) tbt.textContent = PAGE_TITLES[pg] || pg;
-    var inits = {dashboard: function(){ Dashboard.render(); Lembrete.render(); }, agenda: function(){ Agenda.render(); }, pacientes: function(){ Pats.render(); }, prontuarios: function(){ Rec.init(); }, anamnese: function(){ Ana.renderTmpls(); }, financeiro: function(){ Fin.render(); }, auditoria: function(){ AuditLog.render(); }, admin: function(){ Admin.render(); StorageMon.render(); }, supervisao: function(){ Sup.render(); Sup._renderCalendario(); }, perfil: function(){ Perfil.render(); }, config: function(){ Cloud._updateBadge(!!Cloud._sb); }};
+    var inits = {dashboard: function(){ Dashboard.render(); Lembrete.render(); }, agenda: function(){ Agenda.render(); _syncSelects(); }, pacientes: function(){ Pats.render(); }, prontuarios: function(){ Rec.init(); }, anamnese: function(){ Ana.renderTmpls(); }, financeiro: function(){ Fin.render(); }, auditoria: function(){ AuditLog.render(); }, admin: function(){ Admin.render(); }, supervisao: function(){ Sup.render(); Sup._renderCalendario(); }, perfil: function(){ Perfil.render(); }, config: function(){} };
     if(inits[pg]) inits[pg]();
     this.closeSb();
   },
@@ -559,9 +457,12 @@ var UI = {
 
 // painel principal
 var Dashboard = {
-  render: function(){
-    var sess = DB.get('session', {}); var pats = _visiblePats(DB.get('patients',[]), sess);
-    var appts = DB.get('appts',[]); var sessions = DB.get('sessions',[]);
+  render: async function(){
+    var pats, appts, sessions;
+    try {
+      var r = await Promise.all([Api.get('/patients'), Api.get('/appts'), Api.get('/sessions')]);
+      pats = r[0]; appts = r[1]; sessions = r[2];
+    } catch(e){ return; }
     var today = isoToday();
     var ativo = pats.filter(function(p){ return p.status === 'ativo'; }).length;
     var todayN = appts.filter(function(a){ return a.data === today && a.status === 'agendado'; }).length;
@@ -604,7 +505,7 @@ var Dashboard = {
   },
   _recent: function(pats){
     var el = document.getElementById('dash-pats'); if(!el) return;
-    var list = pats.slice().sort(function(a,b){ return b.createdAt.localeCompare(a.createdAt); }).slice(0,5);
+    var list = pats.slice().sort(function(a,b){ return (b.createdAt||'').localeCompare(a.createdAt||''); }).slice(0,5);
     if(!list.length){ el.innerHTML = empty('Nenhum paciente cadastrado'); return; }
     el.innerHTML = list.map(function(p){
       return '<div class="li click" data-pid="' + esc(p.id) + '" onclick="Rec.view(this.getAttribute(\'data-pid\'))">'
@@ -618,8 +519,10 @@ var Dashboard = {
 
 // contadores
 var Badge = {
-  update: function(){
-    var n = DB.get('appts', []).filter(function(a){ return a.data === isoToday() && a.status === 'agendado'; }).length;
+  update: async function(){
+    var appts;
+    try { appts = await Api.get('/appts'); } catch(e){ return; }
+    var n = appts.filter(function(a){ return a.data === isoToday() && a.status === 'agendado'; }).length;
     var el = document.getElementById('bdg-a'); if(el) el.textContent = String(n);
   }
 };
@@ -638,27 +541,11 @@ var Pats = {
     var ps = document.getElementById('pats-search'); if(ps) ps.value = '';
     this.render();
   },
-  changePass: function(){
-    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
-    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
-    if(newpw.length < 6){ Toast.show('Senha nova deve ter pelo menos 6 caracteres.','err'); return; }
-    var sess = DB.get('session',{}), users = DB.get('users',[]);
-    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
-    if(u.hash !== Auth._hash(oldpw) && u.hash !== Auth._hashLegacy(oldpw)){
-      Toast.show('Senha atual incorreta.','err'); return;
-    }
-    u.hash = Auth._hash(newpw);
-    DB.set('users', users);
-    setVal('pf-oldpw',''); setVal('pf-newpw','');
-    AuditLog.log('Senha alterada', sess.nome, 'config');
-    Toast.show('Senha alterada com sucesso!','ok');
-  },
-  save: function(){
+  save: async function(){
     var nome = getVal('mp-n'), nasc = getVal('mp-nasc');
     var nascInvalid = nasc && (nasc > isoToday() || nasc < '1920-01-01');
     fErr('fg-mp-n', !nome); fErr('fg-mp-nasc', !nasc || nascInvalid);
     if(!nome || !nasc || nascInvalid){ Toast.show(nascInvalid ? 'Data de nascimento inválida.' : 'Preencha os campos obrigatórios.','err'); return; }
-    var sess = DB.get('session', {}), pats = DB.get('patients', []);
     var fields = {nome:nome, nasc:nasc, sexo:getVal('mp-sexo'), tel:getVal('mp-tel'), email:getVal('mp-email'), tipo:getVal('mp-tipo'), mod:getVal('mp-mod'), prio:getVal('mp-prio'), enc:getVal('mp-enc'), cpf:getVal('mp-cpf'), queixa:getVal('mp-queixa'), resp:getVal('mp-resp'), telResp:getVal('mp-tel-resp'), obs:getVal('mp-obs')};
     if(Pats._pendingFoto !== undefined) fields.foto = Pats._pendingFoto;
     var lgpdTypes = ['atend','dados','grav','pesq'];
@@ -667,21 +554,18 @@ var Pats = {
       var cb = document.getElementById('mp-lgpd-'+t);
       if(cb && cb.checked) consents.push({tipo:t, aceito:true, data:new Date().toISOString()});
     });
-    if(consents.length) fields.consentimentos = consents;
-    if(this._editId){
-      var idx = pats.findIndex(function(x){ return x.id === Pats._editId; });
-      if(idx >= 0){ for(var k in fields) pats[idx][k] = fields[k]; }
-      DB.set('patients', pats);
-      AuditLog.log('Edição de Paciente', '"' + nome + '"', 'paciente');
-      Toast.show('Paciente "' + nome.split(' ')[0] + '" atualizado!', 'ok');
-    } else {
-      var p = Object.assign({id:uid(), profId:sess.userId, status:'ativo', createdAt:new Date().toISOString()}, fields);
-      pats.push(p); DB.set('patients', pats);
-      AuditLog.log('Cadastro de Paciente', '"' + nome + '"', 'paciente');
-      Toast.show('Paciente "' + nome.split(' ')[0] + '" cadastrado!', 'ok');
-    }
+    fields.consentimentos = consents;
+    try {
+      if(this._editId){
+        await Api.patch('/patients/' + this._editId, fields);
+        Toast.show('Paciente "' + nome.split(' ')[0] + '" atualizado!', 'ok');
+      } else {
+        await Api.post('/patients', fields);
+        Toast.show('Paciente "' + nome.split(' ')[0] + '" cadastrado!', 'ok');
+      }
+    } catch(e){ return; }
     this._editId = null;
-    M.close('m-pat'); this.render(); Dashboard.render(); Badge.update(); _syncSelects(); _updateLoginStats();
+    M.close('m-pat'); this.render(); Dashboard.render(); Badge.update(); _updateLoginStats();
     ['mp-n','mp-nasc','mp-tel','mp-email','mp-enc','mp-cpf','mp-queixa','mp-resp','mp-tel-resp','mp-obs'].forEach(function(id){ setVal(id,''); });
     fClear('fg-mp-n','fg-mp-nasc');
   },
@@ -718,10 +602,12 @@ var Pats = {
     var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Cadastrar Paciente';
     M.open('m-pat');
   },
-  edit: function(id){
-    var p = DB.get('patients', []).find(function(x){ return x.id === id; }); if(!p) return;
+  edit: async function(id){
+    var pats;
+    try { pats = await Api.get('/patients'); } catch(e){ return; }
+    var p = pats.find(function(x){ return x.id === id; }); if(!p) return;
     this._editId = id;
-    setVal('mp-n', p.nome||''); setVal('mp-nasc', p.nasc||''); setVal('mp-sexo', p.sexo||'');
+    setVal('mp-n', p.nome||''); setVal('mp-nasc', (p.nasc||'').slice(0,10)); setVal('mp-sexo', p.sexo||'');
     setVal('mp-tel', p.tel||''); setVal('mp-email', p.email||''); setVal('mp-tipo', p.tipo||'adulto');
     setVal('mp-mod', p.mod||''); setVal('mp-prio', p.prio||'media'); setVal('mp-enc', p.enc||'');
     setVal('mp-cpf', p.cpf||''); setVal('mp-queixa', p.queixa||'');
@@ -736,46 +622,50 @@ var Pats = {
     var t = document.getElementById('m-pat-title'); if(t) t.textContent = 'Editar Paciente';
     M.open('m-pat');
   },
-  del: function(id){
-    var pats = DB.get('patients', []);
-    var p = pats.find(function(x){ return x.id === id; });
-    if(!confirm('Remover paciente "' + (p ? p.nome : '') + '"? Esta ação não pode ser desfeita.')) return;
-    DB.set('patients', pats.filter(function(x){ return x.id !== id; }));
-    this.render(); Dashboard.render(); _syncSelects(); _updateLoginStats();
-    AuditLog.log('Remoção de Paciente', '"' + (p ? p.nome : '—') + '"', 'paciente');
+  del: async function(id){
+    if(!confirm('Remover este paciente? Esta ação não pode ser desfeita.')) return;
+    try { await Api.del('/patients/' + id); } catch(e){ return; }
+    this.render(); Dashboard.render(); _updateLoginStats();
     Toast.show('Paciente removido.', 'inf');
   },
-  anonymize: function(id){
-    var pats=DB.get('patients',[]),p=pats.find(function(x){return x.id===id;});if(!p) return;
-    if(!confirm('LGPD \u2014 Anonimizar "'+p.nome+'"?\nDados pessoais substituidos permanentemente.\nSessoes mantidas para estatistica.')) return;
-    var old=p.nome;p.nome='[ANONIMIZADO]';p.tel='';p.email='';p.cpf='';p.nasc='';p.resp='';p.telResp='';p.obs='';p.queixa='[LGPD]';p.enc='';p.foto=null;p.consentimentos=[];p.status='finalizado';p._anonymizedAt=new Date().toISOString();
-    DB.set('patients',pats);this.render();Dashboard.render();_syncSelects();_updateLoginStats();
-    AuditLog.log('LGPD','"'+old+'" anonimizado','paciente');Toast.show('Paciente anonimizado.','ok');
+  anonymize: async function(id){
+    if(!confirm('LGPD — Anonimizar este paciente?\nDados pessoais substituídos permanentemente.\nSessões mantidas para estatística.')) return;
+    try { await Api.post('/patients/' + id + '/anonimizar'); } catch(e){ return; }
+    this.render(); Dashboard.render(); _updateLoginStats();
+    Toast.show('Paciente anonimizado.', 'ok');
   },
-  exportCSV: function(){
-    var pats=DB.get('patients',[]);if(!pats.length){Toast.show('Nenhum paciente.','warn');return;}
-    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',"'"+(p.queixa||'')+"'",p.enc||'',fmtDate((p.createdAt||'').slice(0,10))].join(';');}).join('\n');
-    _download('pacientes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Pacientes CSV','export');Toast.show('CSV exportado!','ok');
+  exportCSV: async function(){
+    var pats;
+    try { pats = await Api.get('/patients'); } catch(e){ return; }
+    if(!pats.length){ Toast.show('Nenhum paciente.','warn'); return; }
+    var csv='Nome;Nasc;Sexo;CPF;Tel;Email;Tipo;Mod;Prio;Status;Queixa;Enc;Cadastro\n'+pats.map(function(p){return[p.nome,fmtDate(p.nasc),p.sexo||'',p.cpf||'',p.tel||'',p.email||'',p.tipo||'',p.mod||'',p.prio||'',p.status||'',"'"+(p.queixa||'')+"'",p.enc||'',fmtDate(p.createdAt)].join(';');}).join('\n');
+    _download('pacientes_'+isoToday()+'.csv','﻿'+csv,'text/csv;charset=utf-8');
+    logEvent('Exportação', 'Pacientes CSV', 'export');
+    Toast.show('CSV exportado!', 'ok');
   },
-  toggleStatus: function(id){
-    var pats = DB.get('patients', []);
-    var p = pats.find(function(x){ return x.id === id; });
-    if(p) p.status = p.status === 'ativo' ? 'finalizado' : p.status === 'finalizado' ? 'aguardando' : 'ativo';
-    DB.set('patients', pats); this.render(); Dashboard.render();
+  toggleStatus: async function(id){
+    var pats;
+    try { pats = await Api.get('/patients'); } catch(e){ return; }
+    var p = pats.find(function(x){ return x.id === id; }); if(!p) return;
+    var novo = p.status === 'ativo' ? 'finalizado' : p.status === 'finalizado' ? 'aguardando' : 'ativo';
+    try { await Api.patch('/patients/' + id, {status: novo}); } catch(e){ return; }
+    this.render(); Dashboard.render();
     Toast.show('Status atualizado.', 'ok');
   },
   filter: function(v){ this._page=0;this.render(v); },
-  render: function(fil){
-    var sess = DB.get('session', {});
+  render: async function(fil){
     fil = fil || (document.getElementById('pats-search') ? document.getElementById('pats-search').value : '') || '';
-    var all = _visiblePats(DB.get('patients', []), sess).filter(function(p){ return p.tipo === Pats._type; });
+    var all, sessions;
+    try {
+      var r = await Promise.all([Api.get('/patients'), Api.get('/sessions')]);
+      all = r[0].filter(function(p){ return p.tipo === Pats._type; }); sessions = r[1];
+    } catch(e){ return; }
     var pats = fil ? all.filter(function(p){ return (p.nome + p.tel + p.email + p.cpf).toLowerCase().indexOf(fil.toLowerCase()) >= 0; }) : all;
     var sub = document.getElementById('pac-sub'); if(sub) sub.textContent = all.length + ' paciente' + (all.length !== 1 ? 's' : '') + ' cadastrado' + (all.length !== 1 ? 's' : '');
     var tbody = document.getElementById('pats-body'); if(!tbody) return;
-    var canDel = PERMISSIONS[sess.role] && PERMISSIONS[sess.role].canDeletePat;
+    var canDel = SESSAO && PERMISSIONS[SESSAO.role] && PERMISSIONS[SESSAO.role].canDeletePat;
     if(!pats.length){ tbody.innerHTML = '<tr><td colspan="7">' + empty(fil ? 'Nenhum resultado' : 'Nenhum paciente cadastrado', fil ? '' : 'Clique em "Novo paciente" para começar.') + '</td></tr>'; return; }
     var _total=pats.length,_pp=this._perPage,_maxPg=Math.ceil(_total/_pp)-1;if(this._page>_maxPg)this._page=_maxPg;if(this._page<0)this._page=0;pats=pats.slice(this._page*_pp,(this._page+1)*_pp);
-    var sessions = DB.get('sessions', []);
     tbody.innerHTML = pats.map(function(p){
       var age = fmtAge(p.nasc);
       var sc = sessions.filter(function(s){ return s.pacienteId === p.id; }).length;
@@ -799,7 +689,7 @@ var Pats = {
         + (canDel ? '<button class="btn btn-d btn-ico" data-pid="' + esc(p.id) + '" onclick="Pats.del(this.getAttribute(\'data-pid\'))" title="Remover"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>' : '')
         + '</div></td></tr>';
     }).join('');
-    var _pn=document.getElementById('pats-pag');if(_pn&&_total>this._perPage){var _pg=this._page;_pn.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:.77rem;color:var(--ink4)"><span>'+(_pg*_pp+1)+'\u2013'+Math.min((_pg+1)*_pp,_total)+' de '+_total+'</span><div style="display:flex;gap:4px"><button class="btn btn-s btn-xs" '+(_pg<=0?'disabled':'')+' onclick="Pats._page--;Pats.render()">Anterior</button><button class="btn btn-s btn-xs" '+(_pg>=_maxPg?'disabled':'')+' onclick="Pats._page++;Pats.render()">Pr\u00f3ximo</button></div></div>';}else if(_pn){_pn.innerHTML='';}
+    var _pn=document.getElementById('pats-pag');if(_pn&&_total>this._perPage){var _pg=this._page;_pn.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:.77rem;color:var(--ink4)"><span>'+(_pg*_pp+1)+'–'+Math.min((_pg+1)*_pp,_total)+' de '+_total+'</span><div style="display:flex;gap:4px"><button class="btn btn-s btn-xs" '+(_pg<=0?'disabled':'')+' onclick="Pats._page--;Pats.render()">Anterior</button><button class="btn btn-s btn-xs" '+(_pg>=_maxPg?'disabled':'')+' onclick="Pats._page++;Pats.render()">Próximo</button></div></div>';}else if(_pn){_pn.innerHTML='';}
   }
 };
 
@@ -811,17 +701,17 @@ var Rec = {
     var self = this;
     setTimeout(function(){ var sel = document.getElementById('pron-sel'); if(sel){ sel.value = id; self.load(id); } }, 120);
   },
-  load: function(id){
+  load: async function(id){
     var emptyEl = document.getElementById('pron-empty'), view = document.getElementById('pron-view');
     if(!id){ if(emptyEl) emptyEl.style.display=''; if(view) view.style.display='none'; return; }
-    var sess = DB.get('session', {}); var pats = DB.get('patients', []);
-    var p = pats.find(function(x){ return x.id === id; }); if(!p) return;
-    var visible = _visiblePats(pats, sess);
-    if(!visible.find(function(x){ return x.id === id; })){
-      AuditLog.log('Acesso bloqueado', 'Prontuário não autorizado: ' + p.nome, 'seguranca');
+    var pats;
+    try { pats = await Api.get('/patients'); } catch(e){ return; }
+    var p = pats.find(function(x){ return x.id === id; });
+    if(!p){
+      logEvent('Acesso bloqueado', 'Prontuário não autorizado ou paciente inexistente', 'seguranca');
       Toast.show('Acesso não autorizado a este prontuário.', 'err'); return;
     }
-    AuditLog.log('Prontuário acessado', '"' + p.nome + '"', 'prontuario');
+    logEvent('Prontuário acessado', '"' + p.nome + '"', 'prontuario');
     if(emptyEl) emptyEl.style.display = 'none'; if(view) view.style.display = '';
     var age = fmtAge(p.nasc);
     var banner = document.getElementById('pron-banner');
@@ -834,7 +724,8 @@ var Rec = {
       + '<span class="bdg ' + (p.status==='ativo'?'bg':'bn') + '">' + (p.status==='ativo'?'Ativo':p.status==='finalizado'?'Finalizado':'Aguardando') + '</span>'
       + ' ' + LGPD.chip(p)
       + '</div></div>';
-    var sessions = DB.get('sessions', []).filter(function(s){ return s.pacienteId === id; }).sort(function(a,b){ return b.data.localeCompare(a.data); });
+    var sessions;
+    try { sessions = await Api.get('/sessions?pacienteId=' + encodeURIComponent(id)); } catch(e){ sessions = []; }
     var tl = document.getElementById('pron-tl');
     if(tl){
       if(!sessions.length){ tl.innerHTML = empty('Nenhuma evolução registrada', 'Clique em "Registrar evolução" para iniciar.'); }
@@ -856,11 +747,12 @@ var Rec = {
       var sorted = sessions.slice().sort(function(a,b){ return a.data.localeCompare(b.data); });
       Charts.set('mood', new Chart(moodCtx.getContext('2d'), {type:'line', data:{labels:sorted.map(function(s){ return fmtDate(s.data); }), datasets:[{label:'Humor', data:sorted.map(function(s){ return parseInt(s.humor)||3; }), borderColor:'rgba(0,102,255,.85)', backgroundColor:'rgba(0,102,255,.08)', fill:true, tension:.4, pointRadius:5, pointBackgroundColor:'rgba(0,102,255,.9)', pointBorderColor:'#fff', pointBorderWidth:2}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{min:1,max:5,ticks:{stepSize:1,callback:function(v){ return ['','😞','😟','😐','🙂','😄'][v]||v; }}, grid:{color:'rgba(0,0,0,.04)'}}, x:{grid:{display:false}, ticks:{maxTicksLimit:6}}}}}));
     }
-    var anas = DB.get('anamneses', []).filter(function(a){ return a.pacienteId === id; });
+    var anas;
+    try { anas = await Api.get('/anamneses?pacienteId=' + encodeURIComponent(id)); } catch(e){ anas = []; }
     var docsEl = document.getElementById('pron-docs');
     if(docsEl){
       if(!anas.length){ docsEl.innerHTML = '<div style="font-size:.77rem;color:var(--ink4);padding:6px 0">Nenhuma anamnese registrada.</div>'; }
-      else { docsEl.innerHTML = anas.map(function(a){ return '<div style="display:flex;align-items:center;gap:7px;padding:6px 0;border-bottom:1px solid var(--bdr)"><svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;color:var(--b6);flex-shrink:0"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg><span style="font-size:.77rem;color:var(--ink7);flex:1">' + esc(a.label || a.type) + '</span><span style="font-size:.66rem;color:var(--ink3)">' + fmtDate(a.at ? a.at.slice(0,10) : '') + '</span></div>'; }).join(''); }
+      else { docsEl.innerHTML = anas.map(function(a){ return '<div style="display:flex;align-items:center;gap:7px;padding:6px 0;border-bottom:1px solid var(--bdr)"><svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;color:var(--b6);flex-shrink:0"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/></svg><span style="font-size:.77rem;color:var(--ink7);flex:1">' + esc(a.label || a.tipo) + '</span><span style="font-size:.66rem;color:var(--ink3)">' + fmtDate(a.createdAt) + '</span></div>'; }).join(''); }
     }
   }
 };
@@ -876,52 +768,54 @@ var Sess = {
     var t = document.getElementById('m-sess-title'); if(t) t.textContent = 'Registrar Evolução Clínica';
     M.open('m-sess');
   },
-  edit: function(id){
-    var s = DB.get('sessions', []).find(function(x){ return x.id === id; }); if(!s) return;
+  edit: async function(id){
+    var pron = document.getElementById('pron-sel');
+    var sessions;
+    try { sessions = await Api.get('/sessions?pacienteId=' + encodeURIComponent(pron ? pron.value : '')); } catch(e){ return; }
+    var s = sessions.find(function(x){ return x.id === id; }); if(!s) return;
     this._editId = id;
-    setVal('ms-p', s.pacienteId||''); setVal('ms-d', s.data||''); setVal('ms-num', s.num||'');
+    setVal('ms-p', s.pacienteId||''); setVal('ms-d', (s.data||'').slice(0,10)); setVal('ms-num', s.num||'');
     setVal('ms-tipo', s.tipo||''); setVal('ms-r', s.res||''); setVal('ms-pl', s.plano||''); setVal('ms-cid', s.cid||''); setVal('ms-hi', s.horaIni||''); setVal('ms-hf', s.horaFim||'');
     var h = document.getElementById('ms-h'); if(h) h.value = s.humor||3;
     var hv = document.getElementById('ms-hv'); if(hv) hv.textContent = (s.humor||3) + ' / 5';
     var t = document.getElementById('m-sess-title'); if(t) t.textContent = 'Editar Evolução';
     M.open('m-sess');
   },
-  del: function(id){
+  del: async function(id){
     if(!confirm('Excluir esta evolução? A ação não pode ser desfeita.')) return;
-    var sessions = DB.get('sessions', []);
-    var s = sessions.find(function(x){ return x.id === id; });
-    DB.set('sessions', sessions.filter(function(x){ return x.id !== id; }));
-    var p = s ? DB.get('patients',[]).find(function(x){ return x.id === s.pacienteId; }) : null;
-    AuditLog.log('Exclusão de Evolução', '"' + (p ? p.nome : '—') + '"', 'prontuario');
+    try { await Api.del('/sessions/' + id); } catch(e){ return; }
     Toast.show('Evolução excluída.', 'inf');
     var sel = document.getElementById('pron-sel'); if(sel && sel.value) Rec.load(sel.value);
     Dashboard.render(); _updateLoginStats();
   },
-  exportCSV: function(){
-    var ss=DB.get('sessions',[]),pats=DB.get('patients',[]);if(!ss.length){Toast.show('Nenhuma sessao.','warn');return;}
-    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',"'"+(s.res||'')+"'","'"+(s.plano||'')+"'",s.cid||'',fmtDate((s.createdAt||'').slice(0,10))].join(';');}).join('\n');
-    _download('sessoes_'+isoToday()+'.csv','\uFEFF'+csv,'text/csv;charset=utf-8');AuditLog.log('Export','Sessoes CSV','export');Toast.show('CSV exportado!','ok');
+  exportCSV: async function(){
+    var pron = document.getElementById('pron-sel');
+    var pats, ss;
+    try {
+      var r = await Promise.all([Api.get('/patients'), Api.get('/sessions')]);
+      pats = r[0]; ss = r[1];
+    } catch(e){ return; }
+    if(!ss.length){ Toast.show('Nenhuma sessão.','warn'); return; }
+    var csv='Paciente;Data;Num;Tipo;Humor;Relato;Plano;CID;Criado\n'+ss.map(function(s){var p=pats.find(function(x){return x.id===s.pacienteId;});return[(p?p.nome:'?'),fmtDate(s.data),s.num||'',s.tipo||'',s.humor||'',"'"+(s.res||'')+"'","'"+(s.plano||'')+"'",s.cid||'',fmtDate(s.createdAt)].join(';');}).join('\n');
+    _download('sessoes_'+isoToday()+'.csv','﻿'+csv,'text/csv;charset=utf-8');
+    logEvent('Exportação', 'Sessões CSV', 'export');
+    Toast.show('CSV exportado!', 'ok');
   },
-  save: function(){
+  save: async function(){
     var pac = getVal('ms-p'), data = getVal('ms-d'), res = getVal('ms-r');
     fErr('fg-ms-p', !pac); fErr('fg-ms-d', !data); fErr('fg-ms-r', !res);
     if(!pac || !data || !res){ Toast.show('Preencha os campos obrigatórios.', 'err'); return; }
     var hSlider = document.getElementById('ms-h');
-    var sess = DB.get('session', {}), sessions = DB.get('sessions', []);
-    var fields = {pacienteId:pac, data:data, num:getVal('ms-num'), tipo:getVal('ms-tipo'), humor:hSlider?hSlider.value:'3', res:res, plano:getVal('ms-pl'), cid:getVal('ms-cid'), horaIni:getVal('ms-hi'), horaFim:getVal('ms-hf')};
-    if(this._editId){
-      var idx = sessions.findIndex(function(x){ return x.id === Sess._editId; });
-      if(idx >= 0){ for(var k in fields) sessions[idx][k] = fields[k]; }
-      DB.set('sessions', sessions);
-      AuditLog.log('Edição de Evolução', '"' + ((DB.get('patients',[]).find(function(x){return x.id===pac;})||{}).nome||'—') + '"', 'prontuario');
-      Toast.show('Evolução atualizada!', 'ok');
-    } else {
-      var s = Object.assign({id:uid(), autorId:sess.userId, createdAt:new Date().toISOString()}, fields);
-      sessions.push(s); DB.set('sessions', sessions);
-      var p = DB.get('patients', []).find(function(x){ return x.id === pac; });
-      AuditLog.log('Evolução Clínica', '"' + (p ? p.nome : '—') + '"', 'prontuario');
-      Toast.show('Evolução registrada!', 'ok');
-    }
+    var fields = {pacienteId:pac, data:data, num:getVal('ms-num'), tipo:getVal('ms-tipo'), humor:hSlider?parseInt(hSlider.value):3, res:res, plano:getVal('ms-pl'), cid:getVal('ms-cid'), horaIni:getVal('ms-hi'), horaFim:getVal('ms-hf')};
+    try {
+      if(this._editId){
+        await Api.patch('/sessions/' + this._editId, fields);
+        Toast.show('Evolução atualizada!', 'ok');
+      } else {
+        await Api.post('/sessions', fields);
+        Toast.show('Evolução registrada!', 'ok');
+      }
+    } catch(e){ return; }
     this._editId = null; M.close('m-sess');
     ['ms-num','ms-r','ms-pl','ms-cid'].forEach(function(id){ setVal(id,''); });
     if(hSlider) hSlider.value = 3; var hv = document.getElementById('ms-hv'); if(hv) hv.textContent = '3 / 5';
@@ -936,8 +830,12 @@ var _calDate = new Date();
 
 var Cal = {
   go: function(dir){ _calDate = new Date(_calDate.getFullYear(), _calDate.getMonth() + dir, 1); this.render(); },
-  render: function(){
-    var appts = DB.get('appts', []), pats = DB.get('patients', []);
+  render: async function(){
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0]; pats = r[1];
+    } catch(e){ return; }
     var y = _calDate.getFullYear(), m = _calDate.getMonth();
     var lbl = document.getElementById('cal-lbl'); if(lbl) lbl.textContent = new Date(y,m).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
     var hdrs = document.getElementById('cal-hdrs'); if(hdrs) hdrs.innerHTML = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(function(d){ return '<div class="calhdr">'+d+'</div>'; }).join('');
@@ -958,14 +856,19 @@ var Cal = {
 
 var Agenda = {
   render: function(){ Cal.render(); this.renderList(); },
-  renderList: function(){
-    var sess = DB.get('session', {}); var appts = DB.get('appts', []), pats = DB.get('patients', []);
+  renderList: async function(){
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0]; pats = r[1];
+    } catch(e){ return; }
     var filEl = document.getElementById('appt-fil'); var fil = filEl ? filEl.value : '';
     var list = appts.slice().sort(function(a,b){ return a.data.localeCompare(b.data)||a.hora.localeCompare(b.hora); });
     if(fil) list = list.filter(function(a){ return a.status === fil; });
     var el = document.getElementById('appt-list'); if(!el) return;
     if(!list.length){ el.innerHTML = empty('Nenhum atendimento encontrado'); return; }
-    var canEdit = sess.role === 'admin' || sess.role === 'psicologo' || sess.role === 'recepcao';
+    var role = SESSAO ? SESSAO.role : '';
+    var canEdit = role === 'admin' || role === 'psicologo' || role === 'recepcao';
     el.innerHTML = list.map(function(a){
       var p = pats.find(function(x){ return x.id === a.pacienteId; });
       var hh = parseInt((a.hora||'00:00').split(':')[0]);
@@ -989,39 +892,23 @@ var Agenda = {
 
 var Appts = {
   _editId: null,
-  save: function(){
+  save: async function(){
     var pac = getVal('ag-p'), data = getVal('ag-d'), hora = getVal('ag-h');
     fErr('fg-ag-p', !pac); fErr('fg-ag-d', !data); fErr('fg-ag-h', !hora);
     if(!pac || !data || !hora){ Toast.show('Preencha os campos obrigatórios.', 'err'); return; }
-    var appts = DB.get('appts', []);
-    var conflito = appts.find(function(x){ return x.data === data && x.hora === hora && x.status !== 'cancelado'; });
-    if(conflito){
-      var cp = DB.get('patients',[]).find(function(x){ return x.id === conflito.pacienteId; });
-      Toast.show('Conflito: já existe consulta às ' + hora + ' em ' + fmtDate(data) + (cp ? ' (' + cp.nome.split(' ')[0] + ')' : '') + '.', 'err');
-      return;
-    }
     if(this._editId){
-      var appt = appts.find(function(x){ return x.id === Appts._editId; });
-      if(appt){
-        var dup = appts.find(function(x){ return x.id !== Appts._editId && x.data === data && x.hora === hora && x.status !== 'cancelado'; });
-        if(dup){
-          var cpd = DB.get('patients',[]).find(function(x){ return x.id === dup.pacienteId; });
-          Toast.show('Conflito com ' + (cpd ? cpd.nome.split(' ')[0] : 'outro agendamento') + '.', 'err'); return;
-        }
-        appt.pacienteId = pac; appt.data = data; appt.hora = hora;
-        appt.sala = getVal('ag-sala'); appt.prof = getVal('ag-prof'); appt.obs = getVal('ag-obs');
-      }
-      DB.set('appts', appts); this._editId = null;
+      try {
+        await Api.patch('/appts/' + this._editId, {pacienteId:pac, data:data, hora:hora, sala:getVal('ag-sala'), prof:getVal('ag-prof'), obs:getVal('ag-obs')});
+      } catch(e){ return; }
+      this._editId = null;
       M.close('m-appt'); Agenda.render(); Badge.update(); Dashboard.render();
-      var pe = DB.get('patients',[]).find(function(x){ return x.id === pac; });
-      AuditLog.log('Edição de agendamento', '"' + (pe?pe.nome:'—') + '" — ' + fmtDate(data) + ' às ' + hora, 'paciente');
       Toast.show('Agendamento atualizado!', 'ok');
       ['ag-prof','ag-obs','ag-rec','ag-rec-n'].forEach(function(id){ setVal(id,''); });
       fClear('fg-ag-p','fg-ag-d','fg-ag-h');
       return;
     }
     var rec = getVal('ag-rec'), recN = parseInt(getVal('ag-rec-n'))||1;
-    var created = [];
+    var criados = 0, p = null;
     for(var ri = 0; ri < (rec ? recN : 1); ri++){
       var d = new Date(data + 'T12:00:00');
       if(ri > 0){
@@ -1030,30 +917,28 @@ var Appts = {
         else if(rec === 'mensal') d.setMonth(d.getMonth() + ri);
       }
       var dStr = d.toISOString().slice(0,10);
-      if(ri > 0){
-        var dup = appts.find(function(x){ return x.data === dStr && x.hora === hora && x.status !== 'cancelado'; });
-        if(dup) continue;
-      }
-      var a = {id:uid(), pacienteId:pac, data:dStr, hora:hora, sala:getVal('ag-sala'), prof:getVal('ag-prof'), obs:getVal('ag-obs'), status:'agendado', rec:rec||'', createdAt:new Date().toISOString()};
-      appts.push(a); created.push(a);
+      try {
+        var created = await Api.post('/appts', {pacienteId:pac, data:dStr, hora:hora, sala:getVal('ag-sala'), prof:getVal('ag-prof'), obs:getVal('ag-obs'), rec:rec||''});
+        criados++;
+        if(ri === 0) p = created;
+      } catch(e){ if(ri === 0) return; }
     }
-    DB.set('appts', appts);
     M.close('m-appt'); Agenda.render(); Badge.update(); Dashboard.render();
-    var p = DB.get('patients', []).find(function(x){ return x.id === pac; });
-    AuditLog.log('Agendamento', '"' + (p?p.nome:'—') + '" — ' + fmtDate(data) + ' às ' + hora, 'paciente');
-    Toast.show(created.length > 1 ? created.length + ' agendamentos criados!' : 'Agendamento criado!', 'ok');
+    Toast.show(criados > 1 ? criados + ' agendamentos criados!' : 'Agendamento criado!', 'ok');
     var waEl = document.getElementById('ag-wa');
-    if(waEl && waEl.checked && p && p.tel){
-      var msg = '*Clínica Escola de Psicologia CESMAC*\n\nOlá, ' + (p?p.nome:'') + '! 😊\n\nSua consulta foi agendada:\n📅 ' + fmtDate(data) + ' às ' + hora + (a.sala ? '\n🏥 ' + a.sala : '') + '\n\nAguardamos você!';
-      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+    if(waEl && waEl.checked && p){
+      var pats = await Api.get('/patients').catch(function(){ return []; });
+      var pac2 = pats.find(function(x){ return x.id === pac; });
+      if(pac2 && pac2.tel){
+        var msg = '*Clínica Escola de Psicologia CESMAC*\n\nOlá, ' + pac2.nome + '! 😊\n\nSua consulta foi agendada:\n📅 ' + fmtDate(data) + ' às ' + hora + (p.sala ? '\n🏥 ' + p.sala : '') + '\n\nAguardamos você!';
+        window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      }
     }
     ['ag-prof','ag-obs','ag-rec','ag-rec-n'].forEach(function(id){ setVal(id,''); });
     fClear('fg-ag-p','fg-ag-d','fg-ag-h');
   },
-  status: function(id, st){
-    var appts = DB.get('appts', []);
-    var a = appts.find(function(x){ return x.id === id; });
-    if(a) a.status = st; DB.set('appts', appts);
+  status: async function(id, st){
+    try { await Api.patch('/appts/' + id, {status: st}); } catch(e){ return; }
     Agenda.render(); Badge.update(); Dashboard.render();
     Toast.show('Status: "' + st + '".', 'ok');
   },
@@ -1063,18 +948,20 @@ var Appts = {
     var t = document.getElementById('m-appt-title'); if(t) t.textContent = 'Novo Agendamento';
     M.open('m-appt');
   },
-  edit: function(id){
-    var a = DB.get('appts',[]).find(function(x){ return x.id === id; }); if(!a) return;
+  edit: async function(id){
+    var appts;
+    try { appts = await Api.get('/appts'); } catch(e){ return; }
+    var a = appts.find(function(x){ return x.id === id; }); if(!a) return;
     this._editId = id;
-    setVal('ag-p', a.pacienteId||''); setVal('ag-d', a.data||''); setVal('ag-h', a.hora||'');
+    setVal('ag-p', a.pacienteId||''); setVal('ag-d', (a.data||'').slice(0,10)); setVal('ag-h', a.hora||'');
     setVal('ag-sala', a.sala||'Sala 01'); setVal('ag-prof', a.prof||''); setVal('ag-obs', a.obs||'');
     setVal('ag-rec',''); setVal('ag-rec-n','1');
     var t = document.getElementById('m-appt-title'); if(t) t.textContent = 'Editar Agendamento';
     M.open('m-appt');
   },
-  del: function(id){
+  del: async function(id){
     if(!confirm('Remover este agendamento?')) return;
-    DB.set('appts', DB.get('appts',[]).filter(function(a){ return a.id !== id; }));
+    try { await Api.del('/appts/' + id); } catch(e){ return; }
     Agenda.render(); Badge.update(); Dashboard.render();
     Toast.show('Agendamento removido.', 'inf');
   }
@@ -1091,40 +978,39 @@ var Fin = {
     var t = document.getElementById('m-exp-title'); if(t) t.textContent = 'Novo Lançamento';
     M.open('m-exp');
   },
-  edit: function(id){
-    var item = DB.get('finance',[]).find(function(x){ return x.id === id; }); if(!item) return;
+  edit: async function(id){
+    var list;
+    try { list = await Api.get('/finance'); } catch(e){ return; }
+    var item = list.find(function(x){ return x.id === id; }); if(!item) return;
     this._editId = id;
-    setVal('f-d', item.data||''); setVal('f-t', item.tipo||'despesa'); setVal('f-desc', item.desc||'');
+    setVal('f-d', (item.data||'').slice(0,10)); setVal('f-t', item.tipo||'despesa'); setVal('f-desc', item.desc||'');
     setVal('f-cat', item.cat||'Material'); setVal('f-comp', item.comp||'');
     var v = document.getElementById('f-val'); if(v) v.value = item.val||'';
     var t = document.getElementById('m-exp-title'); if(t) t.textContent = 'Editar Lançamento';
     M.open('m-exp');
   },
-  save: function(){
+  save: async function(){
     var data = getVal('f-d'), desc = getVal('f-desc');
     var valEl = document.getElementById('f-val'); var val = valEl ? parseFloat(valEl.value) : 0;
     fErr('fg-fd', !data); fErr('fg-fdesc', !desc); fErr('fg-fval', !(val > 0));
     if(!data || !desc || !(val > 0)){ Toast.show('Preencha os campos obrigatórios.','err'); return; }
-    var list = DB.get('finance',[]);
-    var fields = {data:data, tipo:getVal('f-t'), desc:desc, cat:getVal('f-cat'), val:val, comp:getVal('f-comp')};
-    if(this._editId){
-      var idx = list.findIndex(function(x){ return x.id === Fin._editId; });
-      if(idx >= 0){ for(var k in fields) list[idx][k] = fields[k]; }
-      DB.set('finance', list);
-      AuditLog.log('Edição financeira', (fields.tipo==='receita'?'Receita':'Despesa') + ': ' + desc + ' — ' + fmtCur(val), 'paciente');
-      Toast.show('Lançamento atualizado!', 'ok');
-    } else {
-      var item = Object.assign({id:uid(), createdAt:new Date().toISOString()}, fields);
-      list.push(item); DB.set('finance', list);
-      AuditLog.log('Financeiro', (item.tipo==='receita'?'Receita':'Despesa') + ': ' + desc + ' — ' + fmtCur(val), 'paciente');
-      Toast.show('Lançamento de ' + fmtCur(val) + ' salvo!', 'ok');
-    }
+    var fields = {data:data, tipo:getVal('f-t'), descricao:desc, cat:getVal('f-cat'), val:val, comp:getVal('f-comp')};
+    try {
+      if(this._editId){
+        await Api.patch('/finance/' + this._editId, fields);
+        Toast.show('Lançamento atualizado!', 'ok');
+      } else {
+        await Api.post('/finance', fields);
+        Toast.show('Lançamento de ' + fmtCur(val) + ' salvo!', 'ok');
+      }
+    } catch(e){ return; }
     this._editId = null; M.close('m-exp'); this.render();
     ['f-desc','f-comp'].forEach(function(id){ setVal(id,''); }); if(valEl) valEl.value='';
     fClear('fg-fd','fg-fdesc','fg-fval');
   },
-  render: function(){
-    var list = DB.get('finance',[]);
+  render: async function(){
+    var list;
+    try { list = await Api.get('/finance'); } catch(e){ return; }
     var ym = new Date().toISOString().slice(0,7);
     var month = list.filter(function(l){ return l.data && l.data.slice(0,7) === ym; });
     var rec = month.filter(function(l){ return l.tipo==='receita'; }).reduce(function(s,l){ return s+l.val; }, 0);
@@ -1146,27 +1032,28 @@ var Fin = {
         + '</div></td></tr>';
     }).join('');
   },
-  del: function(id){
+  del: async function(id){
     if(!confirm('Remover este lançamento?')) return;
-    DB.set('finance', DB.get('finance',[]).filter(function(l){ return l.id !== id; }));
+    try { await Api.del('/finance/' + id); } catch(e){ return; }
     this.render(); Toast.show('Lançamento removido.','inf');
   },
-  exportCSV: function(){
-    var list = DB.get('finance',[]);
+  exportCSV: async function(){
+    var list;
+    try { list = await Api.get('/finance'); } catch(e){ return; }
     if(!list.length){ Toast.show('Nenhum lançamento para exportar.','warn'); return; }
     var csv = 'Data;Descrição;Categoria;Tipo;Valor;Comprovante\n' + list.map(function(l){ return fmtDate(l.data)+';'+l.desc+';'+l.cat+';'+l.tipo+';'+l.val+';'+(l.comp||'—'); }).join('\n');
-    _download('financeiro_cesmac_' + isoToday() + '.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8');
-    AuditLog.log('Exportação', 'Relatório financeiro CSV', 'export');
+    _download('financeiro_cesmac_' + isoToday() + '.csv', '﻿' + csv, 'text/csv;charset=utf-8');
+    logEvent('Exportação', 'Relatório financeiro CSV', 'export');
     Toast.show('CSV exportado!','ok');
   }
 };
 
 // administração
 var Admin = {
-  render: function(){
-    var sess = DB.get('session', {});
-    if(sess.role !== 'admin'){ return; }
-    var users = DB.get('users', []);
+  render: async function(){
+    if(!SESSAO || SESSAO.role !== 'admin') return;
+    var users;
+    try { users = await Api.get('/admin/users'); } catch(e){ return; }
     var pending = users.filter(function(u){ return u.pending; });
     var active = users.filter(function(u){ return !u.pending; });
     var pbody = document.getElementById('pending-body');
@@ -1197,40 +1084,34 @@ var Admin = {
         + '<td><span class="bdg ' + (RBDG[u.role]||'bn') + '">' + esc(ROLES[u.role]||u.role) + '</span></td>'
         + '<td><span class="bdg bg">Ativo</span></td>'
         + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDT(u.createdAt) + '</td>'
-        + '<td>' + (u.id !== sess.userId ? '<button class="btn btn-d btn-sm" data-uid="'+esc(u.id)+'" onclick="Admin.del(this.getAttribute(\'data-uid\'))">Remover</button>' : '<span style="font-size:.71rem;color:var(--ink4)">Você</span>') + '</td></tr>';
+        + '<td>' + (u.id !== SESSAO.id ? '<button class="btn btn-d btn-sm" data-uid="'+esc(u.id)+'" onclick="Admin.del(this.getAttribute(\'data-uid\'))">Remover</button>' : '<span style="font-size:.71rem;color:var(--ink4)">Você</span>') + '</td></tr>';
     }).join('');
   },
-  approve: function(id){
-    var users = DB.get('users', []);
-    var u = users.find(function(x){ return x.id === id; });
-    if(!u) return; u.pending = false; DB.set('users', users);
-    AuditLog.log('Usuário aprovado', u.nome + ' (' + (ROLES[u.role]||u.role) + ')', 'paciente');
-    Toast.show(u.nome.split(' ')[0] + ' aprovado(a)!', 'ok'); this.render(); _updateLoginStats();
+  approve: async function(id){
+    try { await Api.post('/admin/users/' + id + '/approve'); } catch(e){ return; }
+    Toast.show('Usuário aprovado!', 'ok'); this.render(); _updateLoginStats();
   },
-  reject: function(id){
-    var users = DB.get('users', []);
-    var u = users.find(function(x){ return x.id === id; });
-    if(!confirm('Rejeitar e remover o cadastro de "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Cadastro rejeitado', u.nome, 'seguranca');
+  reject: async function(id){
+    if(!confirm('Rejeitar e remover este cadastro?')) return;
+    try { await Api.del('/admin/users/' + id); } catch(e){ return; }
     Toast.show('Cadastro rejeitado.', 'inf'); this.render();
   },
-  del: function(id){
-    var users = DB.get('users', []);
-    var u = users.find(function(x){ return x.id === id; });
-    if(!confirm('Remover o usuário "' + (u?u.nome:'') + '"?')) return;
-    DB.set('users', users.filter(function(x){ return x.id !== id; }));
-    if(u) AuditLog.log('Remoção de Usuário', u.nome, 'paciente');
+  del: async function(id){
+    if(!confirm('Remover este usuário?')) return;
+    try { await Api.del('/admin/users/' + id); } catch(e){ return; }
     Toast.show('Usuário removido.', 'inf'); this.render(); _updateLoginStats();
   }
 };
 
 // supervisão
 var Sup = {
-  _renderCalendario: function(){
+  _renderCalendario: async function(){
     var el = document.getElementById('sup-calendario'); if(!el) return;
-    var appts = DB.get('appts',[]).filter(function(a){ return a.status === 'agendado'; });
-    var pats = DB.get('patients',[]), users = DB.get('users',[]);
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0].filter(function(a){ return a.status === 'agendado'; }); pats = r[1];
+    } catch(e){ return; }
     var profs = {}; appts.forEach(function(a){ var k = a.prof || 'Sem profissional'; if(!profs[k]) profs[k] = []; profs[k].push(a); });
     var keys = Object.keys(profs).sort();
     if(!keys.length){ el.innerHTML = '<div class="es"><p>Nenhum agendamento ativo.</p></div>'; return; }
@@ -1243,70 +1124,58 @@ var Sup = {
         }).join('') + '</div>';
     }).join('');
   },
-  render: function(){
-    var sess = DB.get('session', {}); if(sess.role !== 'professor') return;
-    var users = DB.get('users', []);
-    var alunos = users.filter(function(u){ return u.role === 'estagiario' && !u.pending; });
+  render: async function(){
+    if(!SESSAO || SESSAO.role !== 'professor') return;
+    var alunos, pats, vinculos;
+    try {
+      var r = await Promise.all([Api.get('/vinculos/estagiarios'), Api.get('/patients'), Api.get('/vinculos')]);
+      alunos = r[0]; pats = r[1]; vinculos = r[2];
+    } catch(e){ return; }
     var el = document.getElementById('sup-alunos'); if(!el) return;
     if(!alunos.length){ el.innerHTML = empty('Nenhum estagiário cadastrado'); }
     else { el.innerHTML = alunos.map(function(u){ return '<div class="li"><div class="liav" style="background:'+avBg(u.nome)+'">'+initials(u.nome)+'</div><div class="linf"><div class="liname">'+esc(u.nome)+'</div><div class="limeta">'+esc(u.email)+'</div></div><span class="bdg bo">Estagiário</span></div>'; }).join(''); }
     var vcEst = document.getElementById('vc-est'), vcPac = document.getElementById('vc-pac');
     if(vcEst) vcEst.innerHTML = '<option value="">— Selecione —</option>' + alunos.map(function(u){ return '<option value="'+esc(u.id)+'">'+esc(u.nome)+'</option>'; }).join('');
-    var pats = DB.get('patients', []);
     if(vcPac) vcPac.innerHTML = '<option value="">— Selecione —</option>' + pats.map(function(p){ return '<option value="'+esc(p.id)+'">'+esc(p.nome)+'</option>'; }).join('');
-    var vinculos = DB.get('vinculos', []);
     var tbody = document.getElementById('vinc-body'); if(!tbody) return;
     if(!vinculos.length){ tbody.innerHTML = '<tr><td colspan="4">' + empty('Nenhum vínculo criado') + '</td></tr>'; return; }
     tbody.innerHTML = vinculos.map(function(v){
-      var est = users.find(function(x){ return x.id === v.estId; });
+      var est = alunos.find(function(x){ return x.id === v.estId; });
       var pac = pats.find(function(x){ return x.id === v.pacId; });
       return '<tr>'
         + '<td>' + esc(est?est.nome:'—') + '</td>'
         + '<td>' + esc(pac?pac.nome:'—') + '</td>'
-        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate((v.createdAt||'').slice(0,10)) + '</td>'
+        + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDate(v.createdAt) + '</td>'
         + '<td><span class="bdg '+(v.ativo?'bg':'bn')+'">'+(v.ativo?'Ativo':'Revogado')+'</span></td>'
         + '<td><div class="acts">'
         + (v.ativo ? '<button class="btn btn-d btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.revogar(this.getAttribute(\'data-vid\'))">Revogar</button>' : '<button class="btn btn-ok btn-sm" data-vid="'+esc(v.id)+'" onclick="Sup.reativar(this.getAttribute(\'data-vid\'))">Reativar</button>')
         + '</div></td></tr>';
     }).join('');
   },
-  saveVinculo: function(){
+  saveVinculo: async function(){
     var estId = getVal('vc-est'), pacId = getVal('vc-pac');
     if(!estId || !pacId){ Toast.show('Selecione estagiário e paciente.', 'err'); return; }
-    var vinculos = DB.get('vinculos', []);
-    if(vinculos.find(function(v){ return v.estId===estId && v.pacId===pacId && v.ativo; })){ Toast.show('Vínculo já ativo.', 'warn'); return; }
-    var sess = DB.get('session', {});
-    var v = {id: uid(), estId: estId, pacId: pacId, profId: sess.userId, ativo: true, createdAt: new Date().toISOString()};
-    vinculos.push(v); DB.set('vinculos', vinculos);
+    try { await Api.post('/vinculos', {estId: estId, pacId: pacId}); } catch(e){ return; }
     M.close('m-vinculo'); this.render();
-    var users = DB.get('users',[]); var pats = DB.get('patients',[]);
-    var est = users.find(function(x){ return x.id===estId; }); var pac = pats.find(function(x){ return x.id===pacId; });
-    AuditLog.log('Vínculo criado', (est?est.nome:'—') + ' ↔ ' + (pac?pac.nome:'—'), 'paciente');
     Toast.show('Vínculo criado!', 'ok');
   },
-  revogar: function(id){
-    var vinculos = DB.get('vinculos', []);
-    var v = vinculos.find(function(x){ return x.id === id; });
-    if(!v || !confirm('Revogar este vínculo?')) return;
-    v.ativo = false; DB.set('vinculos', vinculos);
-    AuditLog.log('Vínculo revogado', v.id, 'paciente');
+  revogar: async function(id){
+    if(!confirm('Revogar este vínculo?')) return;
+    try { await Api.patch('/vinculos/' + id, {ativo: false}); } catch(e){ return; }
     Toast.show('Vínculo revogado.', 'inf'); this.render();
   },
-  reativar: function(id){
-    var vinculos = DB.get('vinculos', []);
-    var v = vinculos.find(function(x){ return x.id === id; });
-    if(!v) return; v.ativo = true; DB.set('vinculos', vinculos);
+  reativar: async function(id){
+    try { await Api.patch('/vinculos/' + id, {ativo: true}); } catch(e){ return; }
     Toast.show('Vínculo reativado.', 'ok'); this.render();
   }
 };
 
 // perfil profissional
 var Perfil = {
-  render: function(){
-    var sess = DB.get('session', {});
-    var users = DB.get('users', []);
-    var u = users.find(function(x){ return x.id === sess.userId; });
-    if(!u) return;
+  render: async function(){
+    if(!SESSAO) return;
+    var u;
+    try { u = await Api.get('/auth/me'); } catch(e){ return; }
     var profil = u.profil || {};
     var el = document.getElementById('perfil-form'); if(!el) return;
     var abordagens = ['Psicanálise','Psicologia Analítica (Jung)','TCC','Gestalt-terapia','Análise do Comportamento (ABA)','Humanismo (Rogers)','Psicologia Histórico-Cultural','EMDR','ACT','Sistêmica','Psicologia Positiva','Outra'];
@@ -1328,26 +1197,34 @@ var Perfil = {
       + '<div class="fg"><label class="fl">Nova senha</label><input type="password" id="pf-newpw" class="fi" placeholder="Mínimo 6 caracteres"></div>'
       + '</div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-s" onclick="Perfil.changePass()">Alterar senha</button></div></div></div>';
   },
-  save: function(){
+  save: async function(){
     var cpf = getVal('pf-cpf'), crp = getVal('pf-crp'), abord = getVal('pf-abord');
     if(!cpf || !crp || !abord){ Toast.show('Preencha todos os campos obrigatórios.', 'err'); return; }
     var turnos = [];
     document.querySelectorAll('input[name="turno"]:checked').forEach(function(cb){ turnos.push(cb.value); });
     if(!turnos.length){ Toast.show('Selecione ao menos um turno.', 'err'); return; }
-    var users = DB.get('users', []), sess = DB.get('session', {});
-    var u = users.find(function(x){ return x.id === sess.userId; }); if(!u) return;
-    u.profil = {cpf: cpf, crp: crp, abord: abord, nome: getVal('pf-nome'), especialidades: getVal('pf-esp'), turnos: turnos, updatedAt: new Date().toISOString()};
-    DB.set('users', users);
+    try {
+      var profil = await Api.patch('/auth/profile', {cpf: cpf, crp: crp, abord: abord, nome: getVal('pf-nome'), especialidades: getVal('pf-esp'), turnos: turnos});
+      if(SESSAO) SESSAO.profil = profil;
+    } catch(e){ return; }
     var warn = document.getElementById('dash-prof-warn'); if(warn) warn.style.display = 'none';
-    AuditLog.log('Perfil atualizado', 'CRP: ' + crp, 'paciente');
     Toast.show('Perfil salvo com sucesso!', 'ok');
+  },
+  changePass: async function(){
+    var oldpw = getVal('pf-oldpw'), newpw = getVal('pf-newpw');
+    if(!oldpw || !newpw){ Toast.show('Preencha ambos os campos.','err'); return; }
+    if(newpw.length < 6){ Toast.show('Senha nova deve ter pelo menos 6 caracteres.','err'); return; }
+    try { await Api.patch('/auth/password', {senhaAtual: oldpw, senhaNova: newpw}); }
+    catch(e){ return; }
+    setVal('pf-oldpw',''); setVal('pf-newpw','');
+    Toast.show('Senha alterada com sucesso!','ok');
   }
 };
 
 // busca
 var Search = {
   _t: null,
-  _norm: function(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); },
+  _norm: function(s){ return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); },
   _score: function(query, target){
     var q = this._norm(query), t = this._norm(target);
     if(!t) return 0;
@@ -1370,9 +1247,9 @@ var Search = {
     clearTimeout(this._t);
     if(!val || val.length < 2){ M.close('m-search'); return; }
     var self = this;
-    this._t = setTimeout(function(){
-      var sess = DB.get('session', {});
-      var pats = _visiblePats(DB.get('patients',[]), sess);
+    this._t = setTimeout(async function(){
+      var pats;
+      try { pats = await Api.get('/patients'); } catch(e){ return; }
       var scored = [];
       pats.forEach(function(p){
         var best = Math.max(
@@ -1399,7 +1276,7 @@ var Search = {
         return '<div class="li click" data-pid="' + esc(p.id) + '" onclick="Rec.view(this.getAttribute(\'data-pid\'));M.close(\'m-search\')">'
           + avHtml(p, 28, '.64rem')
           + '<div class="linf"><div class="liname">'+hl(p.nome,val)+'</div>'
-          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' \u00b7 '+(p.tel||'\u2014')+(p.cpf?' \u00b7 '+p.cpf:'')+'</div></div>'
+          + '<div class="limeta">'+(p.tipo==='infantil'?'Infantil':'Adulto')+' · '+(p.tel||'—')+(p.cpf?' · '+p.cpf:'')+'</div></div>'
           + '<span style="font-size:.62rem;color:var(--ink3)">'+Math.round(r.s)+'%</span></div>';
       }).join('');
       M.open('m-search');
@@ -1409,14 +1286,19 @@ var Search = {
 
 // teleconsulta
 var Tele = {
-  start: function(apptId){
-    var a = DB.get('appts',[]).find(function(x){ return x.id === apptId; }); if(!a) return;
-    var p = DB.get('patients',[]).find(function(x){ return x.id === a.pacienteId; });
+  start: async function(apptId){
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0]; pats = r[1];
+    } catch(e){ return; }
+    var a = appts.find(function(x){ return x.id === apptId; }); if(!a) return;
+    var p = pats.find(function(x){ return x.id === a.pacienteId; });
     var room = 'PsiCESMAC-' + apptId.slice(0,8) + '-' + a.data.replace(/-/g,'');
     var url = 'https://meet.jit.si/' + encodeURIComponent(room);
     if(confirm('Iniciar teleconsulta' + (p ? ' com ' + p.nome : '') + '?\n\nSala: ' + room + '\n\nO link será aberto em nova aba. Compartilhe com o paciente via WhatsApp se necessário.')){
       window.open(url, '_blank', 'noopener');
-      AuditLog.log('Teleconsulta', '"' + (p?p.nome:'—') + '" — sala ' + room, 'paciente');
+      logEvent('Teleconsulta', '"' + (p?p.nome:'—') + '" — sala ' + room, 'paciente');
       Toast.show('Sala aberta: ' + room, 'ok');
       if(p && p.tel){
         var waMsg = '*Teleconsulta — Clínica CESMAC*\n\nOlá, ' + (p.nome||'').split(' ')[0] + '!\nSua sessão online está pronta.\n\nAcesse: ' + url + '\n\nAguardamos você!';
@@ -1429,42 +1311,46 @@ var Tele = {
 
 // plano terapêutico
 var Plano = {
-  open: function(){
+  open: async function(){
     var sel = document.getElementById('pron-sel'); var pid = sel ? sel.value : '';
     if(!pid){ Toast.show('Selecione um paciente.','err'); return; }
-    var plans = DB.get('plans',{}); var pl = plans[pid] || {};
+    var pl, pats;
+    try {
+      var r = await Promise.all([Api.get('/plans/' + pid), Api.get('/patients')]);
+      pl = r[0] || {}; pats = r[1];
+    } catch(e){ return; }
     setVal('pl-dem', pl.demanda||''); setVal('pl-obj', pl.objetivos||'');
     setVal('pl-int', pl.intervencoes||''); setVal('pl-freq', pl.freq||'Semanal');
-    setVal('pl-qty', pl.qtdSessoes||''); setVal('pl-rev', pl.revisao||'');
+    setVal('pl-qty', pl.qtdSessoes||''); setVal('pl-rev', (pl.revisao||'').slice(0,10));
     setVal('pl-cid', pl.cid||''); setVal('pl-obs', pl.obs||'');
-    var p = DB.get('patients',[]).find(function(x){ return x.id === pid; });
+    var p = pats.find(function(x){ return x.id === pid; });
     var t = document.getElementById('m-plan-title');
     if(t) t.textContent = 'Plano — ' + (p ? p.nome : 'Paciente');
     M.open('m-plan');
   },
-  save: function(){
+  save: async function(){
     var sel = document.getElementById('pron-sel'); var pid = sel ? sel.value : '';
     if(!pid){ Toast.show('Selecione um paciente.','err'); return; }
-    var plans = DB.get('plans',{});
-    plans[pid] = {demanda:getVal('pl-dem'), objetivos:getVal('pl-obj'), intervencoes:getVal('pl-int'),
-      freq:getVal('pl-freq'), qtdSessoes:getVal('pl-qty'), revisao:getVal('pl-rev'),
-      cid:getVal('pl-cid'), obs:getVal('pl-obs'), updatedAt:new Date().toISOString()};
-    DB.set('plans', plans);
-    var p = DB.get('patients',[]).find(function(x){ return x.id === pid; });
-    AuditLog.log('Plano terapêutico', '"' + (p?p.nome:'—') + '"', 'prontuario');
+    var fields = {demanda:getVal('pl-dem'), objetivos:getVal('pl-obj'), intervencoes:getVal('pl-int'),
+      freq:getVal('pl-freq'), qtdSessoes:getVal('pl-qty'), revisao:getVal('pl-rev')||null,
+      cid:getVal('pl-cid'), obs:getVal('pl-obs')};
+    try { await Api.put('/plans/' + pid, fields); } catch(e){ return; }
     Toast.show('Plano salvo!', 'ok'); M.close('m-plan');
   },
-  exportPDF: function(){
+  exportPDF: async function(){
     var sel = document.getElementById('pron-sel'); var pid = sel ? sel.value : '';
     if(!pid){ Toast.show('Selecione um paciente.','err'); return; }
     if(typeof jspdf === 'undefined'){ Toast.show('jsPDF não carregada.','err'); return; }
-    var p = DB.get('patients',[]).find(function(x){ return x.id === pid; }); if(!p) return;
-    var pl = (DB.get('plans',{}))[pid] || {};
-    var doc = new jspdf.jsPDF({unit:'mm',format:'a4'}), sess = DB.get('session',{});
+    var p, pl;
+    try {
+      var r = await Promise.all([Api.get('/patients'), Api.get('/plans/' + pid)]);
+      p = r[0].find(function(x){ return x.id === pid; }); pl = r[1] || {};
+    } catch(e){ return; }
+    if(!p) return;
+    var doc = new jspdf.jsPDF({unit:'mm',format:'a4'});
     var y = PDF._header(doc, 18);
     doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(0,30,80);
     doc.text('PLANO TERAPÊUTICO INDIVIDUALIZADO', 105, y+4, {align:'center'}); y += 14;
-    var age = fmtAge(p.nasc);
     doc.setFontSize(8.5);
     [['Paciente',p.nome||'—','Nascimento',fmtDate(p.nasc)||'—'],['CID',pl.cid||'—','Frequência',pl.freq||'—'],['Previsão',(pl.qtdSessoes||'—')+' sessões','Revisão',fmtDate(pl.revisao)||'—']].forEach(function(row){
       doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);doc.text(row[0]+':',20,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(String(row[1]),52,y);
@@ -1479,9 +1365,10 @@ var Plano = {
       doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(30,30,30);
       doc.splitTextToSize(s[1],166).forEach(function(l){y=PDF._checkPage(doc,y,4.5);doc.text(l,22,y);y+=3.8;});y+=4;
     });
-    PDF._footer(doc, sess);
+    PDF._footer(doc, SESSAO || {});
     doc.save('Plano_'+(p.nome||'').replace(/\s+/g,'_').slice(0,25)+'_'+isoToday()+'.pdf');
-    AuditLog.log('PDF Plano','"'+p.nome+'"','prontuario'); Toast.show('PDF do plano gerado!','ok');
+    logEvent('Exportação', 'PDF Plano "'+p.nome+'"', 'export');
+    Toast.show('PDF do plano gerado!','ok');
   }
 };
 
@@ -1596,7 +1483,7 @@ var Ana = {
   _key: '',
   renderTmpls: function(){
     var el = document.getElementById('tmpls'); if(!el) return;
-    var sess = DB.get('session', {}); var role = sess.role || '';
+    var role = SESSAO ? SESSAO.role : '';
     var avail = TMPL_DATA.filter(function(t){ return !t.roles || t.roles.indexOf(role) >= 0; });
     if(!avail.length){ el.innerHTML = '<div class="es"><div class="esico"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg></div><h3>Sem formulários disponíveis</h3><p>Seu perfil não possui formulários de anamnese atribuídos.</p></div>'; return; }
     el.innerHTML = avail.map(function(t){
@@ -1607,8 +1494,8 @@ var Ana = {
   },
   open: function(key){
     var t = TMPL_DATA.find(function(x){ return x.key === key; }); if(!t) return;
-    var sess = DB.get('session', {});
-    if(t.roles && t.roles.indexOf(sess.role) < 0){ AuditLog.log('Acesso bloqueado','Formulário: '+t.label,'seguranca'); Toast.show('Acesso não autorizado.','err'); return; }
+    var role = SESSAO ? SESSAO.role : '';
+    if(t.roles && t.roles.indexOf(role) < 0){ logEvent('Acesso bloqueado','Formulário: '+t.label,'seguranca'); Toast.show('Acesso não autorizado.','err'); return; }
     this._key = key;
     var titleEl = document.getElementById('ana-title'); if(titleEl) titleEl.textContent = t.label;
     _syncSelects();
@@ -1677,24 +1564,21 @@ var Ana = {
     });
     return txt;
   },
-  save: function(){
+  save: async function(){
     var t = TMPL_DATA.find(function(x){ return x.key === this._key; }, this); if(!t) return;
     var pac = getVal('ana-pac');
     if(!pac && !confirm('Nenhum paciente selecionado.\nA anamnese não aparecerá em nenhum prontuário.\nSalvar mesmo assim?')) return;
-    var list = DB.get('anamneses', []);
-    var sess = DB.get('session', {});
-    list.push({id:uid(), pacienteId:pac, type:this._key, label:t.label, content:this._toText(), raw:this._collect(), autorId:sess.userId||'', at:new Date().toISOString()});
-    DB.set('anamneses', list);
+    try {
+      await Api.post('/anamneses', {pacienteId: pac || null, tipo: this._key, label: t.label, content: this._toText(), raw: this._collect()});
+    } catch(e){ return; }
     M.close('m-ana');
-    var p = pac ? DB.get('patients',[]).find(function(x){ return x.id===pac; }) : null;
-    AuditLog.log('Anamnese registrada', '"'+t.label+'"'+(p?' para "'+p.nome+'"':''), 'prontuario');
     Toast.show('Anamnese "'+t.label+'" salva!', 'ok');
     var sel = document.getElementById('pron-sel'); if(sel && sel.value===pac && pac) Rec.load(pac);
   },
   txt: function(){
     var t = TMPL_DATA.find(function(x){ return x.key === this._key; }, this);
     _download('anamnese_'+(t?t.key:this._key)+'_'+isoToday()+'.txt', this._toText(), 'text/plain');
-    AuditLog.log('Exportação', 'Anamnese "'+(t?t.label:this._key)+'"', 'export');
+    logEvent('Exportação', 'Anamnese "'+(t?t.label:this._key)+'"', 'export');
     Toast.show('Exportado!', 'ok');
   },
   wa: function(){ window.open('https://wa.me/?text=' + encodeURIComponent(this._toText()), '_blank', 'noopener,noreferrer'); }
@@ -1719,14 +1603,17 @@ var LGPD = {
 
 // lembretes — whatsapp
 var Lembrete = {
-  render: function(){
+  render: async function(){
     var card = document.getElementById('dash-lembretes');
     var list = document.getElementById('dash-lembretes-list');
     if(!card || !list) return;
     var tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     var tStr = tomorrow.toISOString().slice(0,10);
-    var appts = DB.get('appts', []).filter(function(a){ return a.data === tStr && a.status === 'agendado'; });
-    var pats = DB.get('patients', []);
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0].filter(function(a){ return a.data === tStr && a.status === 'agendado'; }); pats = r[1];
+    } catch(e){ return; }
     if(!appts.length){ card.style.display = 'none'; return; }
     card.style.display = '';
     list.innerHTML = appts.sort(function(a,b){ return a.hora.localeCompare(b.hora); }).map(function(a){
@@ -1741,22 +1628,29 @@ var Lembrete = {
         + '</div>';
     }).join('');
   },
-  enviar: function(apptId){
-    var appts = DB.get('appts', []);
+  enviar: async function(apptId){
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0]; pats = r[1];
+    } catch(e){ return; }
     var a = appts.find(function(x){ return x.id === apptId; }); if(!a) return;
-    var p = DB.get('patients', []).find(function(x){ return x.id === a.pacienteId; }); if(!p||!p.tel) return;
+    var p = pats.find(function(x){ return x.id === a.pacienteId; }); if(!p||!p.tel) return;
     var tel = p.tel.replace(/\D/g,'');
     if(tel.length <= 10) tel = '55' + tel;
     var msg = '*Clínica Escola de Psicologia CESMAC*\n\nOlá, ' + p.nome.split(' ')[0] + '! \n\nLembramos da sua consulta amanhã:\n📅 ' + fmtDate(a.data) + ' às ' + a.hora + (a.sala ? '\n🏥 ' + a.sala : '') + '\n\nCaso precise remarcar, entre em contato.\nAguardamos você! 😊';
     window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
-    AuditLog.log('Lembrete WhatsApp', '"' + p.nome + '" — ' + fmtDate(a.data) + ' às ' + a.hora, 'paciente');
+    logEvent('Lembrete WhatsApp', '"' + p.nome + '" — ' + fmtDate(a.data) + ' às ' + a.hora, 'paciente');
     Toast.show('Lembrete enviado para ' + p.nome.split(' ')[0] + '!', 'ok');
   },
-  enviarTodos: function(){
+  enviarTodos: async function(){
     var tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     var tStr = tomorrow.toISOString().slice(0,10);
-    var appts = DB.get('appts', []).filter(function(a){ return a.data === tStr && a.status === 'agendado'; });
-    var pats = DB.get('patients', []);
+    var appts, pats;
+    try {
+      var r = await Promise.all([Api.get('/appts'), Api.get('/patients')]);
+      appts = r[0].filter(function(a){ return a.data === tStr && a.status === 'agendado'; }); pats = r[1];
+    } catch(e){ return; }
     var sent = 0;
     appts.forEach(function(a){
       var p = pats.find(function(x){ return x.id === a.pacienteId; });
@@ -1795,17 +1689,19 @@ var PDF = {
     if(y + need > 275){ doc.addPage(); return 22; }
     return y;
   },
-  evolucao: function(){
+  evolucao: async function(){
     var selEl = document.getElementById('pron-sel');
     var pid = selEl ? selEl.value : '';
     if(!pid){ Toast.show('Selecione um paciente primeiro.','err'); return; }
-    var p = DB.get('patients',[]).find(function(x){ return x.id === pid; });
-    if(!p){ Toast.show('Paciente não encontrado.','err'); return; }
     if(typeof jspdf === 'undefined'){ Toast.show('Biblioteca jsPDF não carregada.','err'); return; }
+    var pats, sessions, anas;
+    try {
+      var r = await Promise.all([Api.get('/patients'), Api.get('/sessions?pacienteId='+encodeURIComponent(pid)), Api.get('/anamneses?pacienteId='+encodeURIComponent(pid))]);
+      pats = r[0]; sessions = r[1].sort(function(a,b){ return a.data.localeCompare(b.data); }); anas = r[2];
+    } catch(e){ return; }
+    var p = pats.find(function(x){ return x.id === pid; });
+    if(!p){ Toast.show('Paciente não encontrado.','err'); return; }
     var doc = new jspdf.jsPDF({unit:'mm', format:'a4'});
-    var sess = DB.get('session',{});
-    var sessions = DB.get('sessions',[]).filter(function(s){ return s.pacienteId === pid; }).sort(function(a,b){ return a.data.localeCompare(b.data); });
-    var anas = DB.get('anamneses',[]).filter(function(a){ return a.pacienteId === pid; });
     var y = this._header(doc, 18);
     doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(0,30,80);
     doc.text('RELATÓRIO DE EVOLUÇÃO CLÍNICA', 105, y+4, {align:'center'});
@@ -1848,8 +1744,7 @@ var PDF = {
       doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(120,120,120);
       doc.text('Nenhuma evolução registrada.', 20, y); y += 6;
     }
-    var humores = ['','😞','😟','😐','🙂','😄'];
-    sessions.forEach(function(s, i){
+    sessions.forEach(function(s){
       y = PDF._checkPage(doc, y, 25);
       doc.setFillColor(240,244,252); doc.rect(20, y-3.5, 170, 6.5, 'F');
       doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(0,50,140);
@@ -1884,325 +1779,39 @@ var PDF = {
       anas.forEach(function(a){
         y = PDF._checkPage(doc, y, 5);
         doc.setFont('helvetica','normal'); doc.setTextColor(30,30,30);
-        doc.text('• ' + (a.label||a.type||'Anamnese') + '  —  ' + fmtDate(a.at ? a.at.slice(0,10) : ''), 22, y);
+        doc.text('• ' + (a.label||a.tipo||'Anamnese') + '  —  ' + fmtDate(a.createdAt), 22, y);
         y += 5;
       });
     }
-    this._footer(doc, sess);
-    var fname = 'Evolucao_' + (p.nome||'').replace(/\s+/g,'_').slice(0,30) + '_' + new Date().toISOString().slice(0,10) + '.pdf';
+    this._footer(doc, SESSAO || {});
+    var fname = 'Evolucao_' + (p.nome||'').replace(/\s+/g,'_').slice(0,30) + '_' + isoToday() + '.pdf';
     doc.save(fname);
-    AuditLog.log('PDF Exportado', '"' + p.nome + '" — Evolução (' + sessions.length + ' sessões)', 'prontuario');
+    logEvent('Exportação', 'PDF Evolução "' + p.nome + '" (' + sessions.length + ' sessões)', 'export');
     Toast.show('PDF gerado: ' + fname, 'ok');
   }
 };
 
-// nuvem — supabase
-var Cloud = {
-  _sb: null,
-  _timer: {},
-  _SYNC: ['patients','sessions','appts','anamneses','finance','audit','notifs','vinculos','users','consentimentos','plans'],
-  _SCHEMA: `-- PsiCESMAC · Schema Supabase
--- Execute no SQL Editor do projeto
-
--- ============================================
--- TABELA PRINCIPAL (usada pelo sistema agora)
--- ============================================
-CREATE TABLE IF NOT EXISTS app_data (
-  key TEXT PRIMARY KEY,
-  data JSONB NOT NULL DEFAULT '[]'::jsonb,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE app_data ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY auth_app_data ON app_data
-  FOR ALL USING (auth.role() = 'authenticated')
-  WITH CHECK (auth.role() = 'authenticated');
-
-CREATE OR REPLACE FUNCTION atualizar_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_app_data ON app_data;
-CREATE TRIGGER trg_app_data BEFORE UPDATE ON app_data
-  FOR EACH ROW EXECUTE FUNCTION atualizar_timestamp();
-
-ALTER PUBLICATION supabase_realtime ADD TABLE app_data;
-
-INSERT INTO app_data (key, data) VALUES
-  ('patients','[]'),('sessions','[]'),('appts','[]'),
-  ('anamneses','[]'),('finance','[]'),('audit','[]'),
-  ('notifs','[]'),('vinculos','[]'),('users','[]'),
-  ('plans','{}'),('consentimentos','[]')
-ON CONFLICT (key) DO NOTHING;
-
--- ============================================
--- TABELAS RELACIONAIS (migração futura)
--- Quando quiser sair do JSON e usar SQL puro,
--- crie estas tabelas e adapte o frontend.
--- ============================================
-
-CREATE TABLE IF NOT EXISTS patients (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  nome TEXT NOT NULL, nasc DATE, sexo TEXT DEFAULT '',
-  cpf TEXT DEFAULT '', tel TEXT DEFAULT '', email TEXT DEFAULT '',
-  tipo TEXT DEFAULT 'adulto', mod TEXT DEFAULT '',
-  prio TEXT DEFAULT 'media', enc TEXT DEFAULT '',
-  queixa TEXT DEFAULT '', resp TEXT DEFAULT '',
-  tel_resp TEXT DEFAULT '', obs TEXT DEFAULT '',
-  foto TEXT, status TEXT DEFAULT 'ativo',
-  consentimentos JSONB DEFAULT '[]', prof_id UUID,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  paciente_id UUID REFERENCES patients(id) ON DELETE SET NULL,
-  data DATE NOT NULL, num TEXT DEFAULT '', tipo TEXT DEFAULT '',
-  humor INT DEFAULT 3, res TEXT DEFAULT '', plano TEXT DEFAULT '',
-  cid TEXT DEFAULT '', autor_id UUID,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS appointments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  paciente_id UUID REFERENCES patients(id) ON DELETE SET NULL,
-  data DATE NOT NULL, hora TEXT NOT NULL,
-  sala TEXT DEFAULT '', prof TEXT DEFAULT '',
-  obs TEXT DEFAULT '', status TEXT DEFAULT 'agendado',
-  rec TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_sess_pac ON sessions(paciente_id);
-CREATE INDEX IF NOT EXISTS idx_appts_data ON appointments(data);
-CREATE INDEX IF NOT EXISTS idx_pat_status ON patients(status);
-`,
-
-  connect: function(){
-    if(!_adminOnly()) return;
-    var url = (document.getElementById('sb-url')||{}).value||'';
-    var key = (document.getElementById('sb-key')||{}).value||'';
-    if(!url || !key){ Toast.show('Preencha URL e Anon Key.','err'); return; }
-    if(typeof supabase === 'undefined'){ Toast.show('Biblioteca Supabase não carregada.','err'); return; }
-    try {
-      this._sb = supabase.createClient(url, key);
-      localStorage.setItem('psi_cloud_url', url);
-      localStorage.setItem('psi_cloud_key', key);
-      this._subscribe();
-      this._updateBadge(true);
-      AuditLog.log('Cloud conectado', url.split('//')[1]||url, 'config');
-      Toast.show('Conectado ao Supabase!', 'ok');
-    } catch(e){ Toast.show('Erro ao conectar: ' + e.message, 'err'); }
-  },
-  disconnect: function(){
-    if(!_adminOnly()) return;
-    this._sb = null;
-    localStorage.removeItem('psi_cloud_url');
-    localStorage.removeItem('psi_cloud_key');
-    this._updateBadge(false);
-    Toast.show('Desconectado da nuvem.', 'inf');
-  },
-  restore: function(){
-    var url = localStorage.getItem('psi_cloud_url') || 'https://daokctlqggubgrikrubj.supabase.co';
-    var key = localStorage.getItem('psi_cloud_key');
-    if(url && key && typeof supabase !== 'undefined'){
-      try {
-        this._sb = supabase.createClient(url, key);
-        this._subscribe();
-        this._updateBadge(true);
-      } catch(e){ console.warn('Cloud restore failed', e); }
-    }
-    var urlEl = document.getElementById('sb-url');
-    var keyEl = document.getElementById('sb-key');
-    if(urlEl && url) urlEl.value = url;
-    if(keyEl && key) keyEl.value = key;
-  },
-  _updateBadge: function(on){
-    var b = document.getElementById('cloud-status-bdg');
-    if(!b) return;
-    b.textContent = on ? 'conectado' : 'desconectado';
-    b.className = 'bdg ' + (on ? 'bg' : 'bn');
-  },
-  _subscribe: function(){
-    if(!this._sb) return;
-    this._sb.channel('app_data_changes')
-      .on('postgres_changes', {event:'UPDATE', schema:'public', table:'app_data'}, function(payload){
-        var row = payload.new;
-        if(row && row.key && Cloud._SYNC.indexOf(row.key) >= 0){
-          try { localStorage.setItem('psi_' + row.key, JSON.stringify(row.data)); } catch(e){}
-        }
-      })
-      .subscribe();
-  },
-  _debouncePush: function(k, v){
-    if(this._timer[k]) clearTimeout(this._timer[k]);
-    var self = this;
-    this._timer[k] = setTimeout(function(){ self._pushKey(k, v); }, 1200);
-  },
-  _pushKey: function(k, v){
-    if(!this._sb) return;
-    this._sb.from('app_data').upsert({key:k, data:v}, {onConflict:'key'}).then(function(res){
-      if(res.error) console.warn('Cloud push error [' + k + ']:', res.error.message);
-    });
-  },
-  push: function(){
-    if(!_adminOnly()) return;
-    if(!this._sb){ Toast.show('Conecte ao Supabase primeiro.','err'); return; }
-    var self = this; var count = 0;
-    this._SYNC.forEach(function(k){
-      var v = DB.get(k, []);
-      self._pushKey(k, v); count++;
-    });
-    AuditLog.log('Cloud push', count + ' chaves enviadas', 'config');
-    Toast.show('Dados enviados para a nuvem!', 'ok');
-  },
-  pull: function(){
-    if(!_adminOnly()) return;
-    if(!this._sb){ Toast.show('Conecte ao Supabase primeiro.','err'); return; }
-    if(!confirm('Importar da nuvem substituirá os dados locais. Continuar?')) return;
-    var self = this;
-    this._sb.from('app_data').select('key, data').then(function(res){
-      if(res.error){ Toast.show('Erro: ' + res.error.message, 'err'); return; }
-      var count = 0;
-      (res.data||[]).forEach(function(row){
-        if(self._SYNC.indexOf(row.key) >= 0){
-          try { localStorage.setItem('psi_' + row.key, JSON.stringify(row.data)); count++; } catch(e){}
-        }
-      });
-      AuditLog.log('Cloud pull', count + ' chaves recebidas', 'config');
-      Toast.show('Dados recebidos! Recarregando...', 'ok');
-      setTimeout(function(){ location.reload(); }, 800);
-    });
-  },
-  downloadSchema: function(){
-    var blob = new Blob([this._SCHEMA], {type:'text/sql'});
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'psicesmac_supabase_schema.sql';
-    a.click(); URL.revokeObjectURL(a.href);
-    Toast.show('Schema SQL baixado!', 'ok');
-  }
-};
-
-// somente admin — backup e nuvem
-function _adminOnly(){
-  var sess = DB.get('session', {});
-  if(sess.role === 'admin') return true;
-  AuditLog.log('Acesso bloqueado', 'Configurações (backup/nuvem)', 'seguranca');
-  Toast.show('Acesso restrito ao Administrador.', 'err');
-  return false;
-}
-
-// backup
+// backup — copia de seguranca adicional (os dados vivem no Postgres;
+// isto so exporta um retrato do momento, exclusivo do admin)
 var Backup = {
-  _KEYS: ['users','patients','sessions','appts','anamneses','finance','audit','notifs','vinculos','consentimentos','plans','theme','seeded7'],
-  exportAll: function(){
-    if(!_adminOnly()) return;
+  exportAll: async function(){
+    if(!SESSAO || SESSAO.role !== 'admin'){ Toast.show('Acesso restrito ao Administrador.', 'err'); return; }
     var data = {};
-    this._KEYS.forEach(function(k){ var v = localStorage.getItem('psi_'+k); if(v) data[k] = JSON.parse(v); });
+    try {
+      var r = await Promise.all(['patients','sessions','appts','anamneses','finance','vinculos'].map(function(k){
+        return Api.get('/' + k).catch(function(){ return []; });
+      }));
+      ['patients','sessions','appts','anamneses','finance','vinculos'].forEach(function(k, i){ data[k] = r[i]; });
+    } catch(e){ return; }
     var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'psicesmac_backup_' + new Date().toISOString().slice(0,10) + '.json';
+    a.download = 'psicesmac_backup_' + isoToday() + '.json';
     a.click(); URL.revokeObjectURL(a.href);
-    AuditLog.log('Backup exportado', this._KEYS.length + ' chaves', 'config');
+    logEvent('Exportação', 'Backup JSON', 'export');
     Toast.show('Backup exportado!', 'ok');
-  },
-  importAll: function(input){
-    if(!_adminOnly()){ input.value=''; return; }
-    var file = input.files && input.files[0]; if(!file) return;
-    if(!confirm('Importar substituirá TODOS os dados atuais. Deseja continuar?')){ input.value=''; return; }
-    var reader = new FileReader();
-    reader.onload = function(e){
-      try {
-        var data = JSON.parse(e.target.result), count = 0;
-        Backup._KEYS.forEach(function(k){ if(data[k] !== undefined){ localStorage.setItem('psi_'+k, JSON.stringify(data[k])); count++; } });
-        AuditLog.log('Backup importado', count + ' chaves restauradas', 'config');
-        Toast.show('Backup importado! Recarregando...', 'ok');
-        setTimeout(function(){ location.reload(); }, 800);
-      } catch(err){ Toast.show('Arquivo inválido.', 'err'); }
-    };
-    reader.readAsText(file); input.value = '';
   }
 };
-
-// dados iniciais
-function _seed(){
-  if(DB.get('seeded7')) return;
-  var pats = [
-    {id:uid(),nome:'Ana Clara Ferreira',nasc:'2000-03-15',sexo:'Feminino',tel:'(82) 98811-2233',email:'anaclara@email.com',tipo:'adulto',mod:'Individual',prio:'alta',enc:'UBS Centro',cpf:'111.222.333-44',queixa:'Ansiedade generalizada e dificuldades nos relacionamentos.',status:'ativo',createdAt:new Date(Date.now()-25*864e5).toISOString()},
-    {id:uid(),nome:'Bruno Martins Lima',nasc:'1993-07-22',sexo:'Masculino',tel:'(82) 99422-5566',email:'bruno@email.com',tipo:'adulto',mod:'Individual',prio:'media',enc:'Espontâneo',cpf:'222.333.444-55',queixa:'Episódios depressivos após término de relacionamento.',status:'ativo',createdAt:new Date(Date.now()-20*864e5).toISOString()},
-    {id:uid(),nome:'Carla Souza Silva',nasc:'2005-11-08',sexo:'Feminino',tel:'(82) 99644-7788',email:'carla@email.com',tipo:'adulto',mod:'Individual',prio:'alta',enc:'Serviço Social',cpf:'333.444.555-66',queixa:'Comportamentos autolesivos e conflitos familiares graves.',status:'ativo',createdAt:new Date(Date.now()-15*864e5).toISOString()},
-    {id:uid(),nome:'Diego Nascimento',nasc:'1982-04-30',sexo:'Masculino',tel:'(82) 98533-9900',email:'diego@email.com',tipo:'adulto',mod:'Individual',prio:'media',enc:'Médico clínico',cpf:'444.555.666-77',queixa:'Burnout e estresse ocupacional crônico.',status:'ativo',createdAt:new Date(Date.now()-12*864e5).toISOString()},
-    {id:uid(),nome:'Maria Luíza Santos',nasc:'2018-06-20',sexo:'Feminino',tel:'(82) 98700-1122',email:'',tipo:'infantil',mod:'Infantil',prio:'media',enc:'Escola Municipal',cpf:'',queixa:'Dificuldade de socialização e choro excessivo.',resp:'Joana Santos (mãe)',status:'ativo',createdAt:new Date(Date.now()-8*864e5).toISOString()},
-    {id:uid(),nome:'Pedro Henrique Oliveira',nasc:'2016-02-14',sexo:'Masculino',tel:'(82) 99300-5544',email:'',tipo:'infantil',mod:'Infantil',prio:'alta',enc:'Neurologista Pediátrico',cpf:'',queixa:'Hiperatividade intensa e dificuldade de aprendizagem.',resp:'Roberto Oliveira (pai)',status:'ativo',createdAt:new Date(Date.now()-5*864e5).toISOString()}
-  ];
-  DB.set('patients', pats);
-  var SUMM = ['Sessão inicial. Rapport sólido e contrato terapêutico estabelecidos. Paciente demonstrou boa receptividade.','Aprofundamento da queixa. Padrões cognitivos disfuncionais identificados. Início de psicoeducação.','Reestruturação cognitiva. Redução parcial dos episódios ansiosos. Maior autoconsciência dos gatilhos.','Histórico familiar. Schema de abandono identificado. Resistência inicial ao aprofundamento.','Regulação emocional: respiração diafragmática e mindfulness. Melhora no sono relatada.'];
-  var sessions = [];
-  pats.slice(0,4).forEach(function(p, pi){
-    var count = 3 + pi;
-    for(var i = 1; i <= count; i++){
-      var d = new Date(); d.setDate(d.getDate() - (count-i+1)*7 - pi*2);
-      sessions.push({id:uid(), pacienteId:p.id, data:d.toISOString().slice(0,10), num:String(i), tipo:i===1?'Acolhimento':'Psicoterapia', humor:String(Math.min(2+i,5)), res:SUMM[Math.min(i-1,4)], plano:i<count?'Continuação da exploração dos padrões relacionais.':'', cid:'', createdAt:d.toISOString()});
-    }
-  });
-  DB.set('sessions', sessions);
-  var times = ['08:00','09:00','10:00','11:00','14:00','15:00'];
-  var appts = pats.map(function(p, i){
-    var d = new Date(); d.setDate(d.getDate() + (i-1));
-    return {id:uid(), pacienteId:p.id, data:d.toISOString().slice(0,10), hora:times[i%times.length], sala:'Sala 0'+((i%4)+1), prof:'Psicóloga Voluntária Paula Costa', obs:'', status:i===0?'realizado':i===5?'cancelado':'agendado', createdAt:new Date().toISOString()};
-  });
-  DB.set('appts', appts);
-  DB.set('finance', [
-    {id:uid(),data:isoToday(),tipo:'despesa',desc:'Resmas de papel A4 (5 pacotes)',cat:'Material',val:85.90,comp:'NF 00123',createdAt:new Date().toISOString()},
-    {id:uid(),data:isoToday(),tipo:'despesa',desc:'Canetas e material de escritório',cat:'Material',val:42.50,comp:'NF 00124',createdAt:new Date().toISOString()},
-    {id:uid(),data:isoToday(),tipo:'receita',desc:'Repasse institucional CESMAC',cat:'Repasse CESMAC',val:1200.00,comp:'DP-2024-10',createdAt:new Date().toISOString()}
-  ]);
-  DB.set('seeded7', true);
-}
-
-// verificação de integridade
-var HealthCheck = {
-  run: function(){
-    var issues=[],pats=DB.get('patients',[]),sess=DB.get('sessions',[]),appts=DB.get('appts',[]),pids=pats.map(function(p){return p.id;});
-    sess.forEach(function(s){if(s.pacienteId&&pids.indexOf(s.pacienteId)<0)issues.push({lv:'warn',m:'Sessao '+s.id.slice(0,8)+' referencia paciente removido'});});
-    appts.forEach(function(a){if(a.pacienteId&&pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Agendamento '+a.id.slice(0,8)+' referencia paciente removido'});});
-    DB.get('anamneses',[]).forEach(function(a){if(!a.pacienteId)issues.push({lv:'warn',m:'Anamnese '+(a.label||a.type||'')+' ('+a.id.slice(0,8)+') sem paciente vinculado'});else if(pids.indexOf(a.pacienteId)<0)issues.push({lv:'warn',m:'Anamnese '+a.id.slice(0,8)+' referencia paciente removido'});});
-    var ids={};['patients','sessions','appts','finance'].forEach(function(k){DB.get(k,[]).forEach(function(i){if(ids[i.id])issues.push({lv:'err',m:'ID duplicado: '+i.id.slice(0,8)+' em '+k});ids[i.id]=true;});});
-    pats.forEach(function(p){if(!p.nome||!p.id)issues.push({lv:'err',m:'Paciente sem nome ou ID'});});
-    var el=document.getElementById('health-result');if(!el)return issues;
-    if(!issues.length){el.innerHTML='<div style="padding:10px;color:var(--g6);font-size:.8rem;font-weight:500">Base integra. Nenhum problema.</div>';}
-    else{var IC={err:'var(--r5)',warn:'var(--o5)',info:'var(--b5)'};el.innerHTML=issues.map(function(i){return'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bdr);font-size:.77rem"><span style="width:7px;height:7px;border-radius:50%;background:'+IC[i.lv]+';flex-shrink:0"></span>'+i.m+'</div>';}).join('');}
-    AuditLog.log('Health Check',issues.length+' problema(s)','config');
-    Toast.show(issues.length?issues.length+' problema(s).':'Base integra.', issues.length?'warn':'ok');
-    return issues;
-  },
-  repair: function(){
-    var pids=DB.get('patients',[]).map(function(p){return p.id;});
-    DB.set('sessions',DB.get('sessions',[]).filter(function(s){return!s.pacienteId||pids.indexOf(s.pacienteId)>=0;}));
-    DB.set('appts',DB.get('appts',[]).filter(function(a){return!a.pacienteId||pids.indexOf(a.pacienteId)>=0;}));
-    AuditLog.log('Auto-repair','Registros orfaos removidos','config');
-    Toast.show('Orfaos removidos.','ok'); this.run();
-  }
-};
-
-// monitor de armazenamento
-var StorageMon = {
-  render: function(){
-    var fill=document.getElementById('storage-fill'),lbl=document.getElementById('storage-label'),det=document.getElementById('storage-detail');
-    if(!fill||!lbl)return;var total=0,bd=[],NM={patients:'Pacientes',sessions:'Sessoes',appts:'Agenda',anamneses:'Anamneses',finance:'Financeiro',audit:'Auditoria',users:'Usuarios'};
-    for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i),b=(localStorage.getItem(k)||'').length*2;total+=b;var c=k.replace('psi_','');if(NM[c])bd.push({k:NM[c],b:b});}
-    var mb=total/(1024*1024),pct=Math.min((mb/5)*100,100);fill.style.width=pct.toFixed(1)+'%';fill.style.background=pct>80?'var(--r5)':pct>60?'var(--o5)':'var(--b6)';
-    lbl.textContent=mb.toFixed(2)+' / 5 MB ('+pct.toFixed(0)+'%)';
-    if(det){bd.sort(function(a,b){return b.b-a.b;});det.innerHTML=bd.map(function(x){return x.k+': <strong>'+(x.b/1024).toFixed(0)+' KB</strong>';}).join(' . ');}
-    if(pct>80)Toast.show('Armazenamento acima de 80%.','warn');
-  }
-};
-window.addEventListener('beforeunload',function(e){if(M._dirty&&document.querySelector('.mbg.on')){e.preventDefault();e.returnValue='';}});
-
-(function(){function _ob(on){var b=document.getElementById('offline-bar');if(b)b.classList.toggle('on',!on);}window.addEventListener('online',function(){_ob(true);Toast.show('Conexao restaurada.','ok');});window.addEventListener('offline',function(){_ob(false);});if(!navigator.onLine)_ob(false);})();
 
 // máscaras de entrada
 var Mask = {
@@ -2242,6 +1851,10 @@ document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') M.closeAll();
 });
 
+window.addEventListener('beforeunload',function(e){if(M._dirty&&document.querySelector('.mbg.on')){e.preventDefault();e.returnValue='';}});
+
+(function(){function _ob(on){var b=document.getElementById('offline-bar');if(b)b.classList.toggle('on',!on);}window.addEventListener('online',function(){_ob(true);Toast.show('Conexao restaurada.','ok');});window.addEventListener('offline',function(){_ob(false);});if(!navigator.onLine)_ob(false);})();
+
 // inicialização
 window.onerror = function(msg, src, line){ console.warn('Erro:', msg, 'L'+line); return true; };
 window.addEventListener('unhandledrejection', function(e){ console.warn('Promise:', e.reason); e.preventDefault(); });
@@ -2255,8 +1868,6 @@ document.addEventListener('DOMContentLoaded', function(){
       caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); });
     }
   })();
-  Cloud.restore();
-  Auth._ensureSectors();
   _updateLoginStats();
   Auth.restore();
 });

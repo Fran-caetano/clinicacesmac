@@ -18,7 +18,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -150,7 +149,7 @@
             <span class="ndot" id="ndot" style="display:none"></span>
           </button>
           <div class="npanel" id="npanel">
-            <div class="nph"><h4>Notificações</h4><button class="btn btn-g btn-xs" onclick="Notif.readAll()">Ler todas</button></div>
+            <div class="nph"><h4>Atividade recente</h4></div>
             <div id="nlist"></div>
           </div>
         </div>
@@ -178,8 +177,6 @@
           <div class="card"><div class="cardh"><h3>Próximos atendimentos</h3><button class="btn btn-g btn-xs" onclick="UI.nav('agenda')">Ver agenda →</button></div><div id="dash-up"></div></div>
           <div class="card"><div class="cardh"><h3>Pacientes recentes</h3><button class="btn btn-g btn-xs" onclick="UI.nav('pacientes')">Ver todos →</button></div><div id="dash-pats"></div></div>
         </div>
-        <div class="card" style="margin-top:12px"><div class="cardh"><h3>Armazenamento local</h3></div><div class="cardb"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px"><div style="flex:1;height:8px;background:var(--bdr);border-radius:4px;overflow:hidden"><div id="storage-fill" style="height:100%;border-radius:4px;width:0%;transition:width .4s"></div></div><span id="storage-label" style="font-size:.74rem;font-weight:600;color:var(--ink5)">—</span></div><div id="storage-detail" style="font-size:.69rem;color:var(--ink4)"></div></div></div>
-        <div class="card" style="margin-top:12px"><div class="cardh"><h3>Integridade dos dados</h3><button class="btn btn-s btn-sm" onclick="HealthCheck.run()">Verificar</button><button class="btn btn-d btn-sm" onclick="HealthCheck.repair()">Auto-reparar</button></div><div class="cardb" id="health-result" style="padding:8px 14px"><span style="font-size:.77rem;color:var(--ink4)">Clique em Verificar para escanear a base.</span></div></div>
       </section>
       <section class="page" id="page-agenda">
         <div class="pgh"><div class="pgh-l"><h2>Agenda</h2><p id="ag-sub">Gerenciamento de atendimentos e horários</p></div>
@@ -288,31 +285,12 @@
         </div>
       </section>
       <section class="page" id="page-config">
-        <div class="pgh"><div class="pgh-l"><h2>Configurações</h2><p>Backup e sincronização — acesso exclusivo do Administrador</p></div></div>
-        <div class="card" style="margin-bottom:12px">
+        <div class="pgh"><div class="pgh-l"><h2>Configurações</h2><p>Backup dos dados — acesso exclusivo do Administrador</p></div></div>
+        <div class="card">
           <div class="cardh"><h3>Backup de dados</h3></div>
           <div class="cardb" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button class="btn btn-p" onclick="Backup.exportAll()"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Exportar tudo (JSON)</button>
-            <button class="btn btn-s" onclick="document.getElementById('backup-file').click()"><svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>Importar backup</button>
-            <input type="file" id="backup-file" accept=".json" style="display:none" onchange="Backup.importAll(this)">
-            <span style="font-size:.69rem;color:var(--ink4)">Exporta todas as chaves do sistema</span>
-          </div>
-        </div>
-        <div class="card">
-          <div class="cardh"><h3>Nuvem · Supabase</h3><span class="bdg" id="cloud-status-bdg">desconectado</span></div>
-          <div class="cardb">
-            <p style="font-size:.74rem;color:var(--ink5);margin-bottom:12px;line-height:1.6">A URL do projeto já está configurada. Falta apenas a <strong>Anon Key</strong>: no painel do Supabase, vá em <em>Settings → API</em>, copie a chave "anon public" e cole no campo abaixo. Depois clique Conectar.</p>
-            <div class="g2">
-              <div class="fg"><label class="fl">Project URL</label><input type="text" id="sb-url" class="fi" placeholder="https://xxxxx.supabase.co" value="https://daokctlqggubgrikrubj.supabase.co"></div>
-              <div class="fg"><label class="fl">Anon Key</label><input type="text" id="sb-key" class="fi" placeholder="eyJhbGciOiJIUz..." value=""></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <button class="btn btn-p" onclick="Cloud.connect()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>Conectar</button>
-              <button class="btn btn-s" onclick="Cloud.push()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M5 10l7-7 7 7h-4v7H9v-7z"/></svg>Enviar dados</button>
-              <button class="btn btn-s" onclick="Cloud.pull()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M19 14l-7 7-7-7h4V7h6v7z"/></svg>Receber dados</button>
-              <button class="btn btn-s" onclick="Cloud.downloadSchema()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9v4h-2v-4H8l4-4 4 4h-3z"/></svg>Baixar schema SQL</button>
-              <button class="btn btn-d" onclick="Cloud.disconnect()">Desconectar</button>
-            </div>
+            <span style="font-size:.69rem;color:var(--ink4)">Os dados vivem no banco Postgres do servidor; este backup é uma cópia de segurança adicional.</span>
           </div>
         </div>
       </section>
