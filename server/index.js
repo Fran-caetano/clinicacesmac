@@ -19,6 +19,11 @@ const { exigirLogin } = require('./middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// atras de um proxy reverso (Railway, Render etc.) o Express precisa saber
+// disso pra reconhecer a conexao HTTPS corretamente - sem isso, o cookie
+// de sessao com "secure: true" pode nao funcionar direito
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(session({
   name: 'psicesmac.sid',
@@ -44,8 +49,10 @@ app.use('/api/plans', exigirLogin, plansRoutes);
 app.use('/api/admin', exigirLogin, adminRoutes);
 app.use('/api/audit', exigirLogin, auditRoutes);
 
-// serve o frontend atual (index.html, app.js, style.css) a partir da raiz do repo
-app.use(express.static(path.join(__dirname, '..')));
+// serve o frontend (index.html, app.js, style.css, logo) de dentro da
+// propria pasta server/ - assim o deploy funciona mesmo quando a
+// hospedagem (Railway etc.) so envia a pasta "server" pro servidor
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, () => {
   console.log(`PsiCESMAC server rodando em http://localhost:${PORT}`);
