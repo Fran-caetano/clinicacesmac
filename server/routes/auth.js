@@ -113,8 +113,15 @@ router.patch('/profile', exigirLogin, async (req, res) => {
 
 router.post('/recover/request', async (req, res) => {
   const email = (req.body.email || '').trim();
+  if (!validEmail(email)) return res.status(400).json({ erro: 'Informe um e-mail válido.' });
   const { rows } = await pool.query('SELECT id, nome FROM users WHERE lower(email) = lower($1)', [email]);
-  if (!rows[0]) return res.status(404).json({ erro: 'E-mail não encontrado.' });
+
+  // resposta identica exista ou nao o e-mail - senao da pra descobrir quais
+  // e-mails estao cadastrados so testando um por um nesta rota
+  if (!rows[0]) {
+    return res.json({ ok: true, tokenSimulado: null });
+  }
+
   const token = crypto.randomBytes(4).toString('hex').toUpperCase();
   tokensRecuperacao.set(email.toLowerCase(), { token, expira: Date.now() + 15 * 60 * 1000 });
   // sem servico de e-mail configurado: token retorna na resposta, como simulacao

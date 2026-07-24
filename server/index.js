@@ -2,6 +2,8 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
 const statsRoutes = require('./routes/stats');
@@ -24,6 +26,12 @@ const PORT = process.env.PORT || 3000;
 // de sessao com "secure: true" pode nao funcionar direito
 app.set('trust proxy', 1);
 
+// cabecalhos de seguranca padrao (protecao contra clickjacking, sniffing
+// de tipo de conteudo etc.) - csp desligado porque o frontend usa CDN
+// externo (Chart.js, jsPDF) e inline handlers (onclick=...) que exigiriam
+// uma politica bem mais elaborada pra nao quebrar nada
+app.use(helmet({ contentSecurityPolicy: false }));
+
 app.use(express.json());
 app.use(session({
   name: 'psicesmac.sid',
@@ -33,9 +41,30 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: process.env.COOKIE_SECURE === 'true',
+    sameSite: 'lax',
     maxAge: 8 * 60 * 60 * 1000 // 8 horas, igual ao timeout que ja existia no frontend
   }
 }));
+
+// limite de tentativas de login - sem isso nada impede forca bruta de senha
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas de login. Aguarde alguns minutos.' }
+});
+// mesma logica pro fluxo de recuperacao de senha - o pedido de token e a
+// confirmacao tambem sao alvo de forca bruta (o token tem so 8 caracteres)
+const recoverLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas. Aguarde alguns minutos.' }
+});
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/recover', recoverLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/stats', statsRoutes);

@@ -310,7 +310,9 @@ var Auth = {
     try {
       var r = await Api.post('/auth/recover/request', {email: email});
       Auth._recoverEmail = email;
-      Toast.show('Token (simulação): ' + r.tokenSimulado, 'inf', 10000);
+      // mensagem igual exista ou nao o e-mail, pra nao dar pra descobrir
+      // quais e-mails estao cadastrados so tentando aqui
+      Toast.show(r.tokenSimulado ? ('Token (simulação): ' + r.tokenSimulado) : 'Se o e-mail estiver cadastrado, um token foi gerado.', 'inf', 10000);
       document.getElementById('rec-s1').classList.remove('on');
       document.getElementById('rec-s2').classList.add('on');
     } catch(e){ fErr('fg-rec-e', true); }
