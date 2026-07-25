@@ -2,8 +2,10 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const pool = require('./db/pool');
 
 const authRoutes = require('./routes/auth');
 const statsRoutes = require('./routes/stats');
@@ -32,9 +34,18 @@ app.set('trust proxy', 1);
 // uma politica bem mais elaborada pra nao quebrar nada
 app.use(helmet({ contentSecurityPolicy: false }));
 
-app.use(express.json());
+// limite maior que o padrao do Express (100kb) - a foto do paciente vai
+// em base64 no corpo da requisicao e pode chegar a uns 700kb (limite de
+// 500kb no arquivo original, +33% do base64)
+app.use(express.json({ limit: '2mb' }));
+
 app.use(session({
   name: 'psicesmac.sid',
+  // sessao gravada no Postgres (tabela criada sozinha na primeira vez) -
+  // MemoryStore (o padrao do express-session) nao e' recomendado pra
+  // producao: perde todas as sessoes a cada reinicio do servidor e nao
+  // funciona com mais de uma instancia rodando
+  store: new pgSession({ pool: pool, tableName: 'user_sessions', createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
