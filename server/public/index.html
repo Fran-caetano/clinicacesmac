@@ -58,11 +58,11 @@
       <div class="fg" id="fg-li-e"><label class="fl">E-mail</label>
         <input type="email" id="li-e" class="fi" placeholder="seu@email.com" autocomplete="email" maxlength="120" onkeydown="if(event.key==='Enter')Auth.login()">
         <div class="ferr">Informe um e-mail válido.</div></div>
-      <div class="fg" id="fg-li-p"><label class="fl">Senha</label>
-        <input type="password" id="li-p" class="fi" placeholder="••••••••" autocomplete="current-password" maxlength="72" onkeydown="if(event.key==='Enter')Auth.login()">
+      <div class="fg" id="fg-li-p" style="position:relative"><label class="fl">Senha</label>
+        <input type="password" id="li-p" class="fi" placeholder="••••••••" autocomplete="current-password" maxlength="72" onkeydown="if(event.key==='Enter')Auth.login()" style="padding-right:40px">
+        <button type="button" tabindex="-1" onclick="togglePwd('li-p',this)" style="position:absolute;right:10px;top:30px;background:transparent;border:none;cursor:pointer;color:var(--ink4);padding:5px"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
         <div class="ferr">Informe a senha.</div></div>
-      <button class="btn btn-p btn-w btn-lg" id="btn-login" onclick="Auth.login()"><span id="btn-login-txt">Acessar sistema</span></button>
-
+      <div style="text-align:center"><button class="btn btn-outline-fill btn-lg" id="btn-login" style="width:260px;max-width:100%" onclick="Auth.login()"><span id="btn-login-txt">Acessar sistema</span></button></div>
     </div>
     <div id="pn-register" style="display:none">
       <div class="g2">
@@ -72,8 +72,9 @@
         <div class="fg" id="fg-rg-e"><label class="fl">E-mail *</label>
           <input type="email" id="rg-e" class="fi" placeholder="seu@email.com" maxlength="120">
           <div class="ferr">E-mail inválido.</div></div>
-        <div class="fg" id="fg-rg-p"><label class="fl">Senha * (mín. 8 car.)</label>
-          <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72">
+        <div class="fg" id="fg-rg-p" style="position:relative"><label class="fl">Senha * (mín. 8 car.)</label>
+          <input type="password" id="rg-p" class="fi" placeholder="Mín. 8 caracteres" maxlength="72" style="padding-right:40px">
+          <button type="button" tabindex="-1" onclick="togglePwd('rg-p',this)" style="position:absolute;right:10px;top:30px;background:transparent;border:none;cursor:pointer;color:var(--ink4);padding:5px"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
           <div class="ferr">Mínimo 8 caracteres.</div></div>
         <div class="fg gc"><label class="fl">Função solicitada</label>
           <select id="rg-r" class="fi fsel">
@@ -82,7 +83,7 @@
             <option value="professor">Professor(a) / Supervisor(a)</option>
           </select></div>
       </div>
-      <button class="btn btn-p btn-w" onclick="Auth.register()">Solicitar cadastro</button>
+      <div style="text-align:center"><button class="btn btn-outline-fill btn-lg" style="width:260px;max-width:100%" onclick="Auth.register()">Solicitar cadastro</button></div>
       <p style="font-size:.71rem;color:var(--ink4);text-align:center;margin-top:10px;line-height:1.6">O acesso será aprovado pelo Administrador do sistema.</p>
     </div>
     <div id="pn-recover" style="display:none">
@@ -92,23 +93,25 @@
         <div class="fg" id="fg-rec-e"><label class="fl">E-mail cadastrado</label>
           <input type="email" id="rec-e" class="fi" placeholder="seu@email.com" maxlength="120">
           <div class="ferr">E-mail não encontrado no sistema.</div></div>
-        <button class="btn btn-p btn-w" onclick="Auth.recoverStep1()">Enviar token</button>
+        <div style="text-align:center"><button class="btn btn-outline-fill btn-lg" style="width:260px;max-width:100%" onclick="Auth.recoverStep1()">Enviar token</button></div>
       </div>
       <div class="rec-step" id="rec-s2">
         <div class="rec-ico">📧</div>
         <p class="rec-msg">Token enviado para seu e-mail. Expira em <strong>15 minutos</strong>.</p>
         <div class="fg"><label class="fl">Token de verificação</label>
           <input type="text" id="rec-tok" class="fi" placeholder="Ex: A3F9K2" maxlength="8" style="text-align:center;letter-spacing:.3em;font-size:1.05rem;font-weight:700"></div>
-        <button class="btn btn-p btn-w" onclick="Auth.recoverStep2()">Verificar token</button>
+        <div style="text-align:center"><button class="btn btn-outline-fill btn-lg" style="width:260px;max-width:100%" onclick="Auth.recoverStep2()">Verificar token</button></div>
       </div>
       <div class="rec-step" id="rec-s3">
         <div class="rec-ico">✅</div>
         <p class="rec-msg">Token validado. Defina sua nova senha.</p>
-        <div class="fg"><label class="fl">Nova senha *</label>
-          <input type="password" id="rec-np" class="fi" placeholder="Mín. 8 caracteres" maxlength="72"></div>
-        <div class="fg"><label class="fl">Confirme a nova senha *</label>
-          <input type="password" id="rec-np2" class="fi" placeholder="Repita a senha" maxlength="72"></div>
-        <button class="btn btn-p btn-w" onclick="Auth.recoverStep3()">Redefinir senha</button>
+        <div class="fg" style="position:relative"><label class="fl">Nova senha *</label>
+          <input type="password" id="rec-np" class="fi" placeholder="Mín. 8 caracteres" maxlength="72" style="padding-right:40px">
+          <button type="button" tabindex="-1" onclick="togglePwd('rec-np',this)" style="position:absolute;right:10px;top:30px;background:transparent;border:none;cursor:pointer;color:var(--ink4);padding:5px"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button></div>
+        <div class="fg" style="position:relative"><label class="fl">Confirme a nova senha *</label>
+          <input type="password" id="rec-np2" class="fi" placeholder="Repita a senha" maxlength="72" style="padding-right:40px">
+          <button type="button" tabindex="-1" onclick="togglePwd('rec-np2',this)" style="position:absolute;right:10px;top:30px;background:transparent;border:none;cursor:pointer;color:var(--ink4);padding:5px"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button></div>
+        <div style="text-align:center"><button class="btn btn-outline-fill btn-lg" style="width:260px;max-width:100%" onclick="Auth.recoverStep3()">Redefinir senha</button></div>
       </div>
     </div>
     <p class="lpan-hint">Acesso restrito · Criptografia AES-256 · LGPD / CFP</p>
@@ -119,8 +122,11 @@
 <div id="app" aria-hidden="true">
   <div id="sbo" onclick="UI.closeSb()"></div>
   <nav id="sb">
-    <div class="sbh">
-      <div class="sbb"><img src="logo-cesmac.jpg" alt="CESMAC" style="height:24px;width:auto;opacity:.95;flex-shrink:0"><div class="sbt" style="margin-left:6px"><strong>PsiCESMAC</strong><span>Clínica Escola · CESMAC</span></div></div>
+    <div class="sbh" style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:var(--tb);padding:0">
+      <div class="sbb" style="display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;gap:0">
+        <img src="logo-cesmac.jpg" alt="CESMAC" style="height:26px;width:auto;opacity:.95">
+        <span style="color:var(--ink4);font-size:9px;font-weight:500;margin-top:2px;letter-spacing:.2px">Sistema de Gestão Clínica</span>
+      </div>
     </div>
     <div class="sbn" id="sb-nav"></div>
     <div class="sbu">
@@ -183,7 +189,7 @@
           <div class="pgh-r"><button class="btn btn-p" id="btn-novo-agend" onclick="Appts.openNew()"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>Novo agendamento</button></div>
         </div>
         <div class="card" style="margin-bottom:12px"><div class="cardb">
-          <div class="calnav"><button class="btn btn-s btn-sm" onclick="Cal.go(-1)">‹ Anterior</button><span class="calmonth" id="cal-lbl"></span><button class="btn btn-s btn-sm" onclick="Cal.go(1)">Próximo ›</button></div>
+          <div class="calnav"><button class="btn btn-outline-fill-rev btn-sm" onclick="Cal.go(-1)">‹ Anterior</button><span class="calmonth" id="cal-lbl"></span><button class="btn btn-outline-fill btn-sm" onclick="Cal.go(1)">Próximo ›</button></div>
           <div class="calgrid" id="cal-hdrs"></div>
           <div class="calgrid" id="cal-grid"></div>
         </div></div>

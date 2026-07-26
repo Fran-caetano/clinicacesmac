@@ -64,6 +64,7 @@ function logEvent(action, detail, tipo){
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function esc(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function getVal(id){ var el = document.getElementById(id); return el ? (el.value || '').trim() : ''; }
+function togglePwd(id, btn){ var el = document.getElementById(id); if(!el) return; el.type = el.type === 'password' ? 'text' : 'password'; if(btn) btn.style.color = el.type === 'text' ? 'var(--b6)' : 'var(--ink4)'; }
 function setVal(id, v){ var el = document.getElementById(id); if(el) el.value = v || ''; }
 function fErr(id, on){ var el = document.getElementById(id); if(el) el.classList.toggle('err', !!on); }
 function fClear(){ for(var i = 0; i < arguments.length; i++) fErr(arguments[i], false); }
