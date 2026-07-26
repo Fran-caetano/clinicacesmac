@@ -226,6 +226,13 @@ svg {
   filter: drop-shadow(0 6px 18px rgba(0, 10, 40, .35))
 }
 
+.lvis-logo {
+  display: block;
+  height: 70px;
+  width: auto;
+  margin: 0 auto 14px
+}
+
 .lvis-tag {
   font-family: var(--FS);
   font-size: 2rem;
