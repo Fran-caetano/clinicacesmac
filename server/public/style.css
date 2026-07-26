@@ -321,14 +321,15 @@ svg {
 
 .lpan-seal {
   display: inline-block;
-  margin-top: 55px;
-  margin-bottom: 0px
+  margin-top: 20px;
+  margin-bottom: 8px
 }
 
 .lpan-seal img {
   display: block;
-  height: 28px;
-  width: auto
+  height: 72px;
+  width: auto;
+  margin: 0 auto
 }
 
 .lpan-inst {
