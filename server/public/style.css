@@ -63,7 +63,7 @@
   --r24: 24px;
   --rF: 9999px;
   --sb: 264px;
-  --tb: 62px;
+  --tb: 78px;
   --F: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --FS: 'Sora', 'Plus Jakarta Sans', system-ui, sans-serif;
   --fast: 120ms;
@@ -334,7 +334,7 @@ svg {
 
 .lpan-seal img {
   display: block;
-  height: 72px;
+  height: 108px;
   width: auto;
   margin: 0 auto
 }
