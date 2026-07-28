@@ -77,7 +77,7 @@ function fmtCur(v){ return 'R$ ' + parseFloat(v || 0).toLocaleString('pt-BR', {m
 function initials(n){ var p = (n || '').trim().split(/\s+/); return p.length > 1 ? (p[0][0] + p[p.length-1][0]).toUpperCase() : (n || '?')[0].toUpperCase(); }
 function avHtml(p, size, fs){
   size = size || 28; fs = fs || '.64rem';
-  if(p && p.foto) return '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover"></div>';
+  if(p && p.foto) return '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="'+esc(p.foto)+'" style="width:100%;height:100%;object-fit:cover"></div>';
   var nome = (p && p.nome) ? p.nome : '?';
   return '<div class="liav" style="background:'+avBg(nome)+';width:'+size+'px;height:'+size+'px;font-size:'+fs+'">'+initials(nome)+'</div>';
 }
@@ -617,7 +617,7 @@ var Pats = {
     setVal('mp-resp', p.resp||''); setVal('mp-tel-resp', p.telResp||''); setVal('mp-obs', p.obs||'');
     Pats._pendingFoto = p.foto || null;
     var prev = document.getElementById('mp-foto-prev');
-    if(prev) prev.innerHTML = p.foto ? '<img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
+    if(prev) prev.innerHTML = p.foto ? '<img src="'+esc(p.foto)+'" style="width:100%;height:100%;object-fit:cover">' : '<span style="font-size:.65rem;color:var(--ink3)">Sem foto</span>';
     ['atend','dados','grav','pesq'].forEach(function(t){
       var cb = document.getElementById('mp-lgpd-'+t);
       if(cb) cb.checked = (p.consentimentos||[]).some(function(c){ return c.tipo === t && c.aceito; });
@@ -718,7 +718,7 @@ var Rec = {
     if(emptyEl) emptyEl.style.display = 'none'; if(view) view.style.display = '';
     var age = fmtAge(p.nasc);
     var banner = document.getElementById('pron-banner');
-    if(banner) banner.innerHTML = (p.foto ? '<div class="pbav" style="overflow:hidden"><img src="'+p.foto+'" style="width:100%;height:100%;object-fit:cover"></div>' : '<div class="pbav" style="background:' + avBg(p.nome) + '">' + initials(p.nome) + '</div>')
+    if(banner) banner.innerHTML = (p.foto ? '<div class="pbav" style="overflow:hidden"><img src="'+esc(p.foto)+'" style="width:100%;height:100%;object-fit:cover"></div>' : '<div class="pbav" style="background:' + avBg(p.nome) + '">' + initials(p.nome) + '</div>')
       + '<div><div class="pbname">' + esc(p.nome) + '</div><div class="pbchips">'
       + (age !== null ? '<span class="pbchip">🎂 ' + age + ' anos</span>' : '')
       + '<span class="pbchip">📱 ' + esc(p.tel || '—') + '</span>'
@@ -1087,7 +1087,10 @@ var Admin = {
         + '<td><span class="bdg ' + (RBDG[u.role]||'bn') + '">' + esc(ROLES[u.role]||u.role) + '</span></td>'
         + '<td><span class="bdg bg">Ativo</span></td>'
         + '<td style="font-size:.75rem;color:var(--ink4)">' + fmtDT(u.createdAt) + '</td>'
-        + '<td>' + (u.id !== SESSAO.id ? '<button class="btn btn-d btn-sm" data-uid="'+esc(u.id)+'" onclick="Admin.del(this.getAttribute(\'data-uid\'))">Remover</button>' : '<span style="font-size:.71rem;color:var(--ink4)">Você</span>') + '</td></tr>';
+        + '<td><div class="acts">'
+        + '<button class="btn btn-outline-fill btn-sm" data-uid="'+esc(u.id)+'" onclick="Admin.resetPassword(this.getAttribute(\'data-uid\'))">Redefinir senha</button>'
+        + (u.id !== SESSAO.id ? '<button class="btn btn-d btn-sm" data-uid="'+esc(u.id)+'" onclick="Admin.del(this.getAttribute(\'data-uid\'))">Remover</button>' : '<span style="font-size:.71rem;color:var(--ink4)">Você</span>')
+        + '</div></td></tr>';
     }).join('');
   },
   approve: async function(id){
@@ -1103,6 +1106,12 @@ var Admin = {
     if(!confirm('Remover este usuário?')) return;
     try { await Api.del('/admin/users/' + id); } catch(e){ return; }
     Toast.show('Usuário removido.', 'inf'); this.render(); _updateLoginStats();
+  },
+  resetPassword: async function(id){
+    if(!confirm('Gerar uma nova senha temporária para este usuário? A senha atual dele deixará de funcionar.')) return;
+    var r;
+    try { r = await Api.post('/admin/users/' + id + '/reset-password'); } catch(e){ return; }
+    alert('Senha temporária para ' + r.nome + ' (' + r.email + '):\n\n' + r.senhaTemporaria + '\n\nInforme essa senha à pessoa por um canal seguro. Ela deve trocá-la assim que entrar, em "Alterar senha".');
   }
 };
 

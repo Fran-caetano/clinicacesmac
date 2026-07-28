@@ -87,8 +87,8 @@ router.get('/me', async (req, res) => {
 
 router.patch('/password', exigirLogin, async (req, res) => {
   const { senhaAtual, senhaNova } = req.body;
-  if (!senhaAtual || !senhaNova || senhaNova.length < 6) {
-    return res.status(400).json({ erro: 'Informe a senha atual e uma nova senha com pelo menos 6 caracteres.' });
+  if (!senhaAtual || !senhaNova || senhaNova.length < 8) {
+    return res.status(400).json({ erro: 'Informe a senha atual e uma nova senha com pelo menos 8 caracteres.' });
   }
   const { rows } = await pool.query('SELECT senha_hash FROM users WHERE id = $1', [req.session.user.id]);
   if (!rows[0] || !(await bcrypt.compare(senhaAtual, rows[0].senha_hash))) {
@@ -124,9 +124,17 @@ router.post('/recover/request', async (req, res) => {
 
   const token = crypto.randomBytes(4).toString('hex').toUpperCase();
   tokensRecuperacao.set(email.toLowerCase(), { token, expira: Date.now() + 15 * 60 * 1000 });
-  // sem servico de e-mail configurado: token retorna na resposta, como simulacao
-  // (mesmo comportamento visivel que o sistema ja tinha antes)
-  res.json({ ok: true, tokenSimulado: token });
+  // o token NUNCA vai na resposta da API nem em log acessivel a outros
+  // usuarios - quem pede a recuperacao nao pode ser a mesma pessoa que
+  // recebe o token, senao qualquer um que sabe o e-mail de alguem
+  // consegue trocar a senha dessa pessoa sem precisar acessar a caixa
+  // de entrada dela. sem servico de e-mail configurado ainda, o token
+  // so aparece no console do servidor (visivel apenas a quem administra
+  // a hospedagem) ate a integracao de e-mail ser feita; enquanto isso o
+  // Administrador tambem pode redefinir a senha de qualquer usuario
+  // diretamente pela tela de Administração
+  console.log(`[recuperacao] token para ${email}: ${token} (expira em 15min)`);
+  res.json({ ok: true });
 });
 
 router.post('/recover/confirm', async (req, res) => {

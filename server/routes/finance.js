@@ -4,6 +4,11 @@ const { logAudit } = require('../db/audit');
 const { exigirPagina } = require('../middleware/auth');
 
 const router = express.Router();
+const { UUID_REGEX } = require('../middleware/validarId');
+router.param('id', (req, res, next, val) => {
+  if (!UUID_REGEX.test(val)) return res.status(400).json({ erro: 'Identificador inválido.' });
+  next();
+});
 router.use(exigirPagina('financeiro'));
 
 // "desc" e' palavra reservada em SQL, por isso a coluna se chama descricao -
@@ -31,6 +36,9 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   const b = req.body;
+  if (b.val !== undefined && b.val !== null && !(Number(b.val) > 0)) {
+    return res.status(400).json({ erro: 'Valor deve ser maior que zero.' });
+  }
   const { rows } = await pool.query(
     `UPDATE finance SET
       data = COALESCE($1, data), tipo = COALESCE($2, tipo), descricao = COALESCE($3, descricao),

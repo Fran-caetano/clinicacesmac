@@ -2,8 +2,14 @@ const express = require('express');
 const pool = require('../db/pool');
 const { logAudit } = require('../db/audit');
 const { exigirPagina } = require('../middleware/auth');
+const { podeAcessarPaciente } = require('../db/visibility');
 
 const router = express.Router();
+const { UUID_REGEX } = require('../middleware/validarId');
+router.param('id', (req, res, next, val) => {
+  if (!UUID_REGEX.test(val)) return res.status(400).json({ erro: 'Identificador inválido.' });
+  next();
+});
 
 const COLS = `id, paciente_id AS "pacienteId", data, hora, sala, prof, obs, status, rec,
   created_at AS "createdAt"`;
@@ -19,6 +25,9 @@ router.post('/', exigirPagina('agenda'), async (req, res) => {
   const b = req.body;
   if (!b.pacienteId || !b.data || !b.hora) {
     return res.status(400).json({ erro: 'Paciente, data e horário são obrigatórios.' });
+  }
+  if (!(await podeAcessarPaciente(req.session.user, b.pacienteId))) {
+    return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
   }
   const conflito = await pool.query(
     `SELECT id FROM appointments WHERE data = $1 AND hora = $2 AND status != 'cancelado'`,
@@ -38,7 +47,15 @@ router.post('/', exigirPagina('agenda'), async (req, res) => {
 });
 
 router.patch('/:id', exigirPagina('agenda'), async (req, res) => {
+  const atual = await pool.query('SELECT paciente_id FROM appointments WHERE id = $1', [req.params.id]);
+  if (!atual.rows[0]) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  if (!(await podeAcessarPaciente(req.session.user, atual.rows[0].paciente_id))) {
+    return res.status(403).json({ erro: 'Acesso não autorizado a este agendamento.' });
+  }
   const b = req.body;
+  if (b.pacienteId && !(await podeAcessarPaciente(req.session.user, b.pacienteId))) {
+    return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
+  }
   if (b.data && b.hora) {
     const conflito = await pool.query(
       `SELECT id FROM appointments WHERE data = $1 AND hora = $2 AND status != 'cancelado' AND id != $3`,
@@ -62,6 +79,11 @@ router.patch('/:id', exigirPagina('agenda'), async (req, res) => {
 });
 
 router.delete('/:id', exigirPagina('agenda'), async (req, res) => {
+  const atual = await pool.query('SELECT paciente_id FROM appointments WHERE id = $1', [req.params.id]);
+  if (!atual.rows[0]) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
+  if (!(await podeAcessarPaciente(req.session.user, atual.rows[0].paciente_id))) {
+    return res.status(403).json({ erro: 'Acesso não autorizado a este agendamento.' });
+  }
   const { rowCount } = await pool.query('DELETE FROM appointments WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ erro: 'Agendamento não encontrado.' });
   await logAudit(req.session.user.id, 'Remoção de agendamento', req.params.id, 'paciente');

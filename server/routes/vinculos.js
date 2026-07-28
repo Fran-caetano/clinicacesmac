@@ -4,6 +4,11 @@ const { logAudit } = require('../db/audit');
 const { exigirPagina } = require('../middleware/auth');
 
 const router = express.Router();
+const { UUID_REGEX } = require('../middleware/validarId');
+router.param('id', (req, res, next, val) => {
+  if (!UUID_REGEX.test(val)) return res.status(400).json({ erro: 'Identificador inválido.' });
+  next();
+});
 router.use(exigirPagina('supervisao'));
 
 const COLS = `id, est_id AS "estId", pac_id AS "pacId", prof_id AS "profId", ativo,

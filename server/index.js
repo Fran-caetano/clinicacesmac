@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('express-async-errors');
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
@@ -93,6 +94,15 @@ app.use('/api/audit', exigirLogin, auditRoutes);
 // propria pasta server/ - assim o deploy funciona mesmo quando a
 // hospedagem (Railway etc.) so envia a pasta "server" pro servidor
 app.use(express.static(path.join(__dirname, 'public')));
+
+// handler de erro central - sem isso, um erro de banco/validacao nao tratado
+// numa rota async deixa a requisicao pendurada ou derruba o processo, e nunca
+// deve vazar stack trace / mensagem interna do Postgres pro cliente
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ erro: 'Erro interno no servidor.' });
+});
 
 app.listen(PORT, () => {
   console.log(`PsiCESMAC server rodando em http://localhost:${PORT}`);

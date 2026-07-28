@@ -6,6 +6,20 @@ const { PODE_DELETAR_PACIENTE } = require('../constants/permissions');
 const { idsPacientesVisiveis, podeAcessarPaciente } = require('../db/visibility');
 
 const router = express.Router();
+const { UUID_REGEX } = require('../middleware/validarId');
+router.param('id', (req, res, next, val) => {
+  if (!UUID_REGEX.test(val)) return res.status(400).json({ erro: 'Identificador inválido.' });
+  next();
+});
+
+// so aceita data-URI de imagem (base64) - qualquer outra coisa (ex: uma
+// string com HTML/SVG) e' rejeitada, senao um valor malicioso nesse campo
+// vira um XSS armazenado quando exibido depois via <img src="...">
+const FOTO_REGEX = /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/;
+function fotoValida(foto) {
+  if (foto === undefined || foto === null || foto === '') return true;
+  return typeof foto === 'string' && foto.length < 1_500_000 && FOTO_REGEX.test(foto);
+}
 
 // colunas com alias camelCase - o frontend fala camelCase (pacienteId,
 // telResp, createdAt...), o banco fala snake_case; o alias resolve isso
@@ -39,6 +53,9 @@ router.post('/', exigirPagina('pacientes'), async (req, res) => {
   if (!b.nome || !b.nasc) {
     return res.status(400).json({ erro: 'Nome e data de nascimento são obrigatórios.' });
   }
+  if (!fotoValida(b.foto)) {
+    return res.status(400).json({ erro: 'Foto inválida.' });
+  }
   const { rows } = await pool.query(
     `INSERT INTO patients
       (nome, nasc, sexo, cpf, tel, email, tipo, mod, prio, enc, queixa, resp, tel_resp, obs, foto, consentimentos, prof_id)
@@ -63,6 +80,9 @@ router.patch('/:id', exigirPagina('pacientes'), async (req, res) => {
     return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
   }
   const b = req.body;
+  if (b.foto !== undefined && !fotoValida(b.foto)) {
+    return res.status(400).json({ erro: 'Foto inválida.' });
+  }
   const campos = ['nome', 'nasc', 'sexo', 'cpf', 'tel', 'email', 'tipo', 'mod', 'prio', 'enc',
     'queixa', 'resp', 'tel_resp', 'obs', 'foto', 'status'];
   const sets = [];

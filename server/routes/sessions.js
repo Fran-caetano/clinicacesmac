@@ -5,6 +5,11 @@ const { exigirPagina } = require('../middleware/auth');
 const { podeAcessarPaciente, idsPacientesVisiveis } = require('../db/visibility');
 
 const router = express.Router();
+const { UUID_REGEX } = require('../middleware/validarId');
+router.param('id', (req, res, next, val) => {
+  if (!UUID_REGEX.test(val)) return res.status(400).json({ erro: 'Identificador inválido.' });
+  next();
+});
 
 const COLS = `id, paciente_id AS "pacienteId", data, num, tipo, humor, res, plano, cid,
   hora_ini AS "horaIni", hora_fim AS "horaFim", autor_id AS "autorId",
@@ -70,6 +75,12 @@ router.patch('/:id', exigirPagina('prontuarios'), async (req, res) => {
     return res.status(403).json({ erro: 'Acesso não autorizado a este paciente.' });
   }
   const b = req.body;
+  if (b.humor !== undefined && b.humor !== null) {
+    const humor = Number(b.humor);
+    if (!Number.isInteger(humor) || humor < 1 || humor > 5) {
+      return res.status(400).json({ erro: 'Humor deve ser um número entre 1 e 5.' });
+    }
+  }
   const { rows } = await pool.query(
     `UPDATE clinical_sessions SET
       data = COALESCE($1, data), num = COALESCE($2, num), tipo = COALESCE($3, tipo),
